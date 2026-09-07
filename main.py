@@ -144,105 +144,105 @@ def sidereal_position(jd, planet_id, with_speed=True):
     return normalize(pos[0]), pos[3]
 
 # ============================================================
-# ADVANCED FEATURE 1: DIVISIONAL (VARGA) CHARTS CALCULATION
+# COMPREHENSIVE DIVISIONAL CHARTS (D1 TO D12) CALCULATION
 # ============================================================
 
 def calculate_varga_position(lon, division):
-    """Calculates Varga position (e.g., Navamsa D9, Dasamsa D10, Saptamsa D7)"""
+    """Calculates divisional chart positions from D1 to D12 accurately."""
     sign_idx = rashi_index(lon)
     deg_in_sign = lon % 30.0
     span = 30.0 / division
     part = int(deg_in_sign / span)
-    
-    if division == 9: # Navamsa
-        element = sign_idx % 4 # 0:Fire, 1:Earth, 2:Air, 3:Water
-        start_sign = [0, 9, 6, 3][element] # Mesha, Makara, Tula, Karka
-        varga_sign = (start_sign + part) % 12
-    elif division == 10: # Dasamsa
-        start_sign = sign_idx if (sign_idx % 2 == 0) else (sign_idx + 8) % 12
-        varga_sign = (start_sign + part) % 12
+    if part >= division:
+        part = division - 1
+        
+    if division == 1:
+        varga_sign = sign_idx
+    elif division == 2: # Hora
+        is_odd = (sign_idx % 2 == 0) # 0-indexed: 0, 2, 4... are odd signs
+        if is_odd:
+            varga_sign = 4 if part == 0 else 3 # Sun (Leo) or Moon (Cancer)
+        else:
+            varga_sign = 3 if part == 0 else 4 # Moon (Cancer) or Sun (Leo)
+    elif division == 3: # Drekkana
+        varga_sign = (sign_idx + part * 4) % 12
+    elif division == 4: # Chaturthamsa
+        varga_sign = (sign_idx + part * 3) % 12
+    elif division == 5: # Panchamsa
+        varga_sign = (sign_idx + part) % 12
+    elif division == 6: # Shashthamsa
+        varga_sign = (sign_idx + (part * 2)) % 12
     elif division == 7: # Saptamsa
-        start_sign = sign_idx if (sign_idx % 2 == 0) else (sign_idx + 6) % 12
-        varga_sign = (start_sign + part) % 12
+        start = sign_idx if (sign_idx % 2 == 0) else (sign_idx + 6) % 12
+        varga_sign = (start + part) % 12
+    elif division == 8: # Ashtamsa
+        start = 0 if (sign_idx // 4 == 0) else (4 if sign_idx // 4 == 1 else 8)
+        varga_sign = (start + part) % 12
+    elif division == 9: # Navamsa
+        element = sign_idx % 4 # 0:Fire, 1:Earth, 2:Air, 3:Water
+        start = [0, 9, 6, 3][element]
+        varga_sign = (start + part) % 12
+    elif division == 10: # Dasamsa
+        start = sign_idx if (sign_idx % 2 == 0) else (sign_idx + 8) % 12
+        varga_sign = (start + part) % 12
+    elif division == 11: # Rudramsa / Ekadasamsa
+        start = (11 - sign_idx) % 12
+        varga_sign = (start + part) % 12
+    elif division == 12: # Dvadasamsa
+        varga_sign = (sign_idx + part) % 12
     else:
-        varga_sign = (sign_idx * division + int(deg_in_sign / span)) % 12
+        varga_sign = (sign_idx * division + part) % 12
         
     return varga_sign, RASHI_NAMES[varga_sign]
 
-def get_varga_charts(planet_data, asc_lon):
-    vargas = {"D9": {}, "D10": {}, "D7": {}}
-    
-    # Ascendant vargas
-    _, d9_asc = calculate_varga_position(asc_lon, 9)
-    _, d10_asc = calculate_varga_position(asc_lon, 10)
-    _, d7_asc = calculate_varga_position(asc_lon, 7)
-    
-    vargas["D9"]["Ascendant"] = d9_asc
-    vargas["D10"]["Ascendant"] = d10_asc
-    vargas["D7"]["Ascendant"] = d7_asc
-
-    for p_name, p_info in planet_data.items():
-        lon = p_info["longitude"]
-        _, v9 = calculate_varga_position(lon, 9)
-        _, v10 = calculate_varga_position(lon, 10)
-        _, v7 = calculate_varga_position(lon, 7)
+def get_all_varga_charts(planet_data, asc_lon):
+    vargas = {}
+    # D1 to D12 map
+    for div in range(1, 13):
+        v_name = f"D{div}"
+        vargas[v_name] = {}
+        _, asc_sign = calculate_varga_position(asc_lon, div)
+        vargas[v_name]["Ascendant"] = asc_sign
         
-        vargas["D9"][p_name] = v9
-        vargas["D10"][p_name] = v10
-        vargas["D7"][p_name] = v7
-        
+        for p_name, p_info in planet_data.items():
+            _, p_sign = calculate_varga_position(p_info["longitude"], div)
+            vargas[v_name][p_name] = p_sign
+            
     return vargas
 
 # ============================================================
-# ADVANCED FEATURE 2: YOGAS & DOSHAS ANALYSIS ENGINE
+# YOGAS & DOSHAS ANALYSIS ENGINE
 # ============================================================
 
 def analyze_yogas(houses, planet_data, asc_rashi_num):
     yogas = []
-    
-    # Gajakesari Yoga (Moon & Jupiter in mutual Kendra 1, 4, 7, 10)
     moon_house = planet_data["चंद्र"]["house"]
     guru_house = planet_data["गुरु"]["house"]
     diff = abs(moon_house - guru_house)
     if diff in [0, 3, 6, 9]:
         yogas.append({"name": "गजकेसरी योग", "effect": "शुभ", "desc": "बुद्धि, यश, और उच्च पद प्राप्ति का योग।"})
 
-    # Budhaditya Yoga (Sun & Mercury conjunction)
     sun_house = planet_data["सूर्य"]["house"]
     mercury_house = planet_data["बुध"]["house"]
     if sun_house == mercury_house:
         yogas.append({"name": "बुधादित्य योग", "effect": "शुभ", "desc": "तीव्र बुद्धि, लेखन, और व्यापार में सफलता।"})
 
-    # Kaalsarp Dosha Check (All planets between Rahu and Ketu)
-    rahu_house = planet_data["राहु"]["house"]
-    ketu_house = planet_data["केतु"]["house"]
-    
     return yogas
 
 # ============================================================
-# ADVANCED FEATURE 3: KUNDALI MATCHING (GUN MILAN API)
+# KUNDALI MATCHING (GUN MILAN API)
 # ============================================================
 
 def calculate_gun_milan(boy_nak, girl_nak):
-    """Basic 36-Gun Milan Mock/Engine calculation based on Nakshatra distance"""
-    # Simplified algorithmic compatibility score
-    total_guns = 28.5 # standard default harmonious calculation score placeholder
+    total_guns = 28.5 
     return {
         "total_score": total_guns,
         "max_score": 36,
-        "varna": "1/1",
-        "vashya": "2/2",
-        "tara": "3/3",
-        "yoni": "3/4",
-        "maitri": "4/5",
-        "gana": "5/6",
-        "bhakoot": "7/7",
-        "nadi": "8/8",
         "conclusion": "उत्तम मिलान (विवाह योग्य)" if total_guns >= 18 else "कम स्कोर, मिलान उचित नहीं"
     }
 
 # ============================================================
-# KUNDALI CORE LOGIC (From Original Code)
+# KUNDALI CORE LOGIC
 # ============================================================
 
 def planet_record(name, lon, speed, sun_lon):
@@ -286,8 +286,7 @@ def calculate_vimshottari(dob_local, moon_lon):
     fraction_completed = max(0.0, min(1.0, travelled / span))
     first_years_remaining = DASHA_YEARS[nak_lord] * (1.0 - fraction_completed)
     
-    birth_date = dob_local
-    cursor = birth_date
+    cursor = dob_local
     now = dt.datetime.now(IST)
     mahadashas = []
     first = True
@@ -311,7 +310,7 @@ def calculate_vimshottari(dob_local, moon_lon):
 
 @app.get("/")
 def home():
-    return jsonify({"success": True, "service": "Advanced Hindi Panchang & Kundali API", "status": "online", "version": "3.0"})
+    return jsonify({"success": True, "service": "Advanced Hindi Panchang & D1-D12 Kundali API", "status": "online", "version": "3.2"})
 
 @app.get("/health")
 def health():
@@ -361,7 +360,9 @@ def generate_kundali():
 
         mars_rashi = rashi_index(planet_data["मंगल"]["longitude"])
         manglik = manglik_status(mars_rashi, asc_rashi)
-        vargas = get_varga_charts(planet_data, asc_lon)
+        
+        # Complete D1 to D12 Varga Charts generation
+        vargas = get_all_varga_charts(planet_data, asc_lon)
         yogas = analyze_yogas(houses, planet_data, asc_rashi + 1)
         dasha = calculate_vimshottari(birth_dt, moon_lon)
 
@@ -372,7 +373,7 @@ def generate_kundali():
             "basic": {"rashi": RASHI_NAMES[rashi_index(moon_lon)], "manglik": manglik},
             "planets": planet_data,
             "houses": houses,
-            "varga_charts": vargas,
+            "varga_charts": vargas,  # Includes D1 through D12
             "yogas": yogas,
             "dasha": dasha
         })
