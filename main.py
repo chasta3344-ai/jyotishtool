@@ -1876,6 +1876,57 @@ def get_panchang():
 
 
 # ============================================================
+# TITHI SEARCH ENDPOINT
+# ============================================================
+
+@app.get("/api/find-date-by-tithi")
+def find_date_by_tithi():
+    try:
+        target_tithi = request.args.get("tithi")
+        target_paksha = request.args.get("paksha")
+        target_month = request.args.get("month")
+        year = int(request.args.get("year", 2026))
+        time_str = request.args.get("time", "10:00")
+        
+        city, lat, lon = parse_location(request.args)
+        
+        start_date = dt.date(year, 1, 1)
+        end_date = dt.date(year, 12, 31)
+        curr_date = start_date
+        
+        found_date_str = None
+        
+        while curr_date <= end_date:
+            date_str = curr_date.strftime("%Y-%m-%d")
+            p_res = panchang_for_date(date_str, city, lat, lon)
+            
+            if p_res.get("success"):
+                details = p_res["data"]["details"]
+                if (details.get("maah_purnimant") == target_month and 
+                    details.get("paksha") == target_paksha and 
+                    details.get("tithi") == target_tithi):
+                    found_date_str = date_str
+                    break
+                    
+            curr_date += dt.timedelta(days=1)
+            
+        if not found_date_str:
+            return jsonify({
+                "success": False, 
+                "error": f"वर्ष {year} में निर्दिष्ट तिथि, पक्ष और मास का कोई दिन नहीं मिला।"
+            }), 404
+            
+        with app.test_request_context(f'/api/generate-kundali?date={found_date_str}&time={time_str}&city={urllib.parse.quote(city)}&lat={lat}&lon={lon}'):
+            return generate_kundali()
+
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+# ============================================================
 # LIVE ALL-PLANET TRANSITS
 # ============================================================
 
