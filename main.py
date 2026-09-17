@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
 import swisseph as swe
 import datetime as dt
@@ -1876,7 +1876,7 @@ def get_panchang():
 
 
 # ============================================================
-# TITHI SEARCH ENDPOINT
+# TITHI SEARCH ENDPOINT (Updated to match Date & Kundali/D1)
 # ============================================================
 
 @app.get("/api/find-date-by-tithi")
@@ -1917,13 +1917,25 @@ def find_date_by_tithi():
             }), 404
             
         with app.test_request_context(f'/api/generate-kundali?date={found_date_str}&time={time_str}&city={urllib.parse.quote(city)}&lat={lat}&lon={lon}'):
-            return generate_kundali()
+            kundali_res = generate_kundali()
+            kundali_data = json.loads(kundali_res.get_data(as_text=True))
+            
+            return jsonify({
+                "success": True,
+                "matched_gregorian_date": found_date_str,
+                "kundali": kundali_data
+            })
 
     except Exception as e:
         return jsonify({
             "success": False,
             "error": str(e)
         }), 500
+
+
+@app.get("/tithi-kundali")
+def tithi_kundali_view():
+    return render_template("tithi-kundali.html")
 
 
 # ============================================================
