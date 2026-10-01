@@ -866,6 +866,113 @@ def _format_range(start, end):
     return f"{start.strftime('%I:%M %p')} – {end.strftime('%I:%M %p')}"
 
 
+def _julian_end_datetime(end_jd):
+    """Convert a Swiss-Ephemeris Julian day to an IST datetime."""
+    y2, m2, d2, h2 = swe.revjul(end_jd, swe.GREG_CAL)
+    base = dt.datetime(y2, m2, d2)
+    utc_value = pytz.utc.localize(base + dt.timedelta(hours=h2))
+    return utc_value.astimezone(IST)
+
+
+def _abhijit_period(sunrise_dt, sunset_dt):
+    """Return the daytime Abhijit Muhurta using the existing sunrise/sunset.
+
+    The daytime is divided into 15 equal parts; the 8th part is exposed as
+    Abhijit.  This is added only to the Muhurt response and does not alter
+    the existing candidate-window rules.
+    """
+    if not sunrise_dt or not sunset_dt or sunset_dt <= sunrise_dt:
+        return None
+    part = (sunset_dt - sunrise_dt) / 15
+    start = sunrise_dt + part * 7
+    end = sunrise_dt + part * 8
+    return (start, end)
+
+
+def _muhurt_full_panchang(date_obj, p, choghadiya, kaal, durmuhurt):
+    """Build the complete day-level Panchang payload used by the Muhurt page.
+
+    All displayed clock periods are derived from the same sunrise/sunset and
+    Swiss-Ephemeris calculations already used by this backend.  This function
+    is additive: it does not change any existing Muhurt pass/fail rule.
+    """
+    details = p["details"]
+    timings = p["timings"]
+
+    sunrise = _time_from_text(timings.get("sunrise"), date_obj)
+    sunset = _time_from_text(timings.get("sunset"), date_obj)
+    sunrise_dt = IST.localize(dt.datetime.combine(date_obj, sunrise)) if sunrise else None
+    sunset_dt = IST.localize(dt.datetime.combine(date_obj, sunset)) if sunset else None
+
+    abhijit = _abhijit_period(sunrise_dt, sunset_dt)
+
+    def period_rows(items):
+        return [
+            {
+                "name": item["name"],
+                "period": item["period"],
+                "time": _format_range(item["start"], item["end"])
+            }
+            for item in items
+        ]
+
+    kaal_rows = {
+        name: _format_range(a, b)
+        for name, (a, b) in kaal.items()
+    }
+
+    durmuhurt_rows = [
+        _format_range(a, b) for a, b in durmuhurt
+    ]
+
+    # Add end times for the same astronomical Panchang factors already used
+    # by the Muhurt engine.  Calculations are centered on the same noon
+    # sidereal positions used by panchang_for_date().
+    y, m, d = map(int, date_obj.strftime("%Y-%m-%d").split("-"))
+    noon_dt = IST.localize(dt.datetime(y, m, d, 12, 0))
+    jd = get_julian_day(noon_dt)
+    swe.set_sid_mode(swe.SIDM_LAHIRI)
+    sun_lon, sun_speed = sidereal_position(jd, swe.SUN)
+    moon_lon, moon_speed = sidereal_position(jd, swe.MOON)
+    angle_diff = normalize(moon_lon - sun_lon)
+
+    def next_boundary_end(position, span, speed):
+        if speed <= 0:
+            return None
+        index = int(normalize(position) / span)
+        boundary = (index + 1) * span
+        left = boundary - normalize(position)
+        if left <= 0:
+            left += span
+        return _julian_end_datetime(jd + left / speed)
+
+    nak_end = next_boundary_end(moon_lon, 360.0 / 27.0, moon_speed)
+    yoga_speed = moon_speed + sun_speed
+    yoga_end = next_boundary_end(normalize(sun_lon + moon_lon), 360.0 / 27.0, yoga_speed)
+    karana_end = next_boundary_end(angle_diff, 6.0, moon_speed - sun_speed)
+
+    panchang_details = dict(details)
+    panchang_details["nakshatra_end_time"] = event_time_text(nak_end, date_obj)
+    panchang_details["yog_end_time"] = event_time_text(yoga_end, date_obj)
+    panchang_details["karan_1_end_time"] = event_time_text(karana_end, date_obj)
+
+    return {
+        "date": date_obj.strftime("%Y-%m-%d"),
+        "date_display": date_obj.strftime("%d-%m-%Y"),
+        "weekday": details.get("var", "--"),
+        "details": panchang_details,
+        "timings": dict(timings),
+        "muhurt_timings": {
+            "abhijit": _format_range(*abhijit) if abhijit else "--",
+            "rahu_kal": kaal_rows.get("राहु काल", "--"),
+            "yamaganda": kaal_rows.get("यमगंड", "--"),
+            "gulik_kal": kaal_rows.get("गुलिक काल", "--"),
+            "durmuhurt": durmuhurt_rows,
+            "choghadiya": period_rows(choghadiya)
+        }
+    }
+
+
 def _candidate_windows(local_date, sunrise, sunset, choghadiya, blocked):
     """Create candidate windows from good Choghadiya and remove blocked periods.
 
@@ -992,6 +1099,15 @@ def muhurt_day_record(date_obj, city, lat, lon, target_rashi_idx=None, muhurt_ty
     }
 
     choghadiya = _choghadiya_intervals(date_obj, sunrise_dt, sunset_dt)
+
+    # Durmuhurt is calculated for display for every Muhurt type.  The existing
+    # General/Vehicle/Business/Yatra blocking behavior below is preserved
+    # exactly; this payload simply exposes the calculated periods to the UI.
+    durmuhurt = _durmuhurt_periods(date_obj, sunrise_dt, sunset_dt)
+    full_panchang = _muhurt_full_panchang(
+        date_obj, p, choghadiya, kaal, durmuhurt
+    )
+
     factors["choghadiya"] = {
         "name": "चौघड़िया",
         "value": ", ".join(sorted({x["name"] for x in choghadiya if x["name"] in CHOGADIYA_GOOD})) or "उपलब्ध नहीं",
@@ -1000,7 +1116,6 @@ def muhurt_day_record(date_obj, city, lat, lon, target_rashi_idx=None, muhurt_ty
     }
 
     if muhurt_type in ("vehicle", "business", "yatra"):
-        durmuhurt = _durmuhurt_periods(date_obj, sunrise_dt, sunset_dt)
         factors["durmuhurt"] = {
             "name": "दुर्मुहूर्त",
             "value": ", ".join(_format_range(a, b) for a, b in durmuhurt) or "उपलब्ध नहीं",
@@ -1031,6 +1146,7 @@ def muhurt_day_record(date_obj, city, lat, lon, target_rashi_idx=None, muhurt_ty
             } for x in windows
         ],
         "panchang": p,
+        "full_panchang": full_panchang,
         "reasons": [
             f["reason"] for f in factors.values() if f["status"] in ("avoid", "special")
         ]
