@@ -516,6 +516,98 @@ CHOGADIYA_NIGHT = {
 CHOGADIYA_GOOD = {"शुभ", "लाभ", "अमृत", "चर"}
 
 
+# ============================================================
+# VEHICLE MUHURT RULES
+# ============================================================
+# Vehicle rules are kept separate from the existing General Muhurt rules.
+# The common Chandra-position filter remains first for every Muhurt type.
+
+VEHICLE_TITHI_GOOD = {2, 3, 5, 7, 10, 11, 13}
+VEHICLE_TITHI_AVOID = {4, 9, 14, 30}  # 30 = Amavasya
+VEHICLE_TITHI_SPECIAL = {1, 6, 8, 12, 15, 28}
+
+VEHICLE_VAR_GOOD = {0, 2, 3, 4}       # Mon, Wed, Thu, Fri
+VEHICLE_VAR_AVOID = {1}               # Tue
+VEHICLE_VAR_SPECIAL = {5, 6}          # Sat, Sun
+
+VEHICLE_NAKSHATRA_GOOD = {
+    "पुनर्वसु", "स्वाती", "श्रवण", "धनिष्ठा", "शतभिषा"
+}
+
+VEHICLE_YOGA_AVOID = {
+    "व्यतीपात", "वैधृति", "गण्ड", "अतिगण्ड",
+    "वज्र", "शूल", "परिघ"
+}
+
+VEHICLE_KARANA_GOOD = {
+    "बव", "बालव", "कौलव", "तैतिल", "गर", "वणिज"
+}
+VEHICLE_KARANA_AVOID = {"विष्टि", "भद्रा"}
+VEHICLE_KARANA_SPECIAL = {"शकुनि", "चतुष्पद", "नाग", "किंस्तुघ्न"}
+
+
+def _vehicle_tithi_rule(tithi_no, paksha):
+    if tithi_no in VEHICLE_TITHI_AVOID:
+        return "avoid", "यह तिथि वाहन मुहूर्त में वर्ज्य है"
+    if tithi_no in VEHICLE_TITHI_GOOD:
+        return "good", "वाहन मुहूर्त के लिए अनुकूल तिथि"
+    if tithi_no == 28 and paksha == "कृष्ण पक्ष":
+        return "special", "कृष्ण त्रयोदशी के लिए अन्य अंगों की विशेष जाँच"
+    return "special", "तिथि के लिए अन्य वाहन-मुहूर्त अंगों के साथ विचार"
+
+
+def _vehicle_var_rule(weekday):
+    if weekday in VEHICLE_VAR_AVOID:
+        return "avoid", "मंगलवार वाहन मुहूर्त के लिए वर्ज्य रखा गया है"
+    if weekday in VEHICLE_VAR_GOOD:
+        return "good", "सोम/बुध/गुरु/शुक्र वाहन मुहूर्त के लिए शुभ"
+    return "special", "शनिवार/रविवार को अन्य अंगों के साथ विशेष विचार"
+
+
+def _vehicle_nakshatra_rule(name):
+    if name in VEHICLE_NAKSHATRA_GOOD:
+        return "good", "चर नक्षत्र वाहन के लिए विशेष रूप से अनुकूल"
+    return "special", "नक्षत्र मुख्य वाहन सूची में नहीं है; अन्य अंगों के साथ विचार"
+
+
+def _vehicle_yoga_rule(name):
+    if name in VEHICLE_YOGA_AVOID:
+        return "avoid", "यह योग वाहन मुहूर्त में त्याज्य दोष है"
+    return "good", "त्याज्य योगों में नहीं है"
+
+
+def _vehicle_karana_rule(name):
+    if name in VEHICLE_KARANA_AVOID:
+        return "avoid", "विष्टि/भद्रा वाहन मुहूर्त में वर्ज्य है"
+    if name in VEHICLE_KARANA_GOOD:
+        return "good", "चर करण वाहन मुहूर्त के लिए स्वीकार्य है"
+    if name in VEHICLE_KARANA_SPECIAL:
+        return "special", "स्थिर करण सामान्य वाहन मुहूर्त के लिए विशेष विचार योग्य है"
+    return "special", "करण के लिए विशेष जाँच आवश्यक है"
+
+
+def _durmuhurt_periods(local_date, sunrise, sunset):
+    """Traditional daytime Durmuhurta slots based on weekday and 15-part day."""
+    if not sunrise or not sunset or sunset <= sunrise:
+        return []
+    day_duration = (sunset - sunrise).total_seconds()
+    part = day_duration / 15.0
+    slots = {
+        0: [8],       # Monday
+        1: [1, 7],    # Tuesday
+        2: [5],       # Wednesday
+        3: [4, 6],    # Thursday
+        4: [2],       # Friday
+        5: [1, 2],    # Saturday
+        6: [4],       # Sunday
+    }.get(local_date.weekday(), [8])
+    return [
+        (sunrise + dt.timedelta(seconds=(slot - 1) * part),
+         sunrise + dt.timedelta(seconds=slot * part))
+        for slot in slots
+    ]
+
+
 def _three_month_end(start_date):
     month = start_date.month - 1 + 3
     year = start_date.year + month // 12
@@ -661,7 +753,7 @@ def _candidate_windows(local_date, sunrise, sunset, choghadiya, blocked):
     return chosen
 
 
-def muhurt_day_record(date_obj, city, lat, lon, target_rashi_idx=None):
+def muhurt_day_record(date_obj, city, lat, lon, target_rashi_idx=None, muhurt_type="general"):
     date_str = date_obj.strftime("%Y-%m-%d")
     p = panchang_for_date(date_str, city, lat, lon)["data"]
     details = p["details"]
@@ -671,7 +763,10 @@ def muhurt_day_record(date_obj, city, lat, lon, target_rashi_idx=None):
     moon_status, moon_reason = _moon_position_rule(moon_idx, target_rashi_idx)
 
     tithi_no = _tithi_number(p)
-    tithi_status, tithi_reason = _tithi_rule(tithi_no, details["paksha"])
+    if muhurt_type == "vehicle":
+        tithi_status, tithi_reason = _vehicle_tithi_rule(tithi_no, details["paksha"])
+    else:
+        tithi_status, tithi_reason = _tithi_rule(tithi_no, details["paksha"])
 
     # These status hooks are deliberately separate.  As the remaining
     # traditional Muhurt lessons are finalized, their rule functions can be
@@ -687,20 +782,23 @@ def muhurt_day_record(date_obj, city, lat, lon, target_rashi_idx=None):
         },
         "var": {
             "name": "वार", "value": details["var"],
-            "status": "good", "reason": "वार की सामान्य गणना उपलब्ध है"
+            "status": (_vehicle_var_rule(date_obj.weekday())[0] if muhurt_type == "vehicle" else "good"),
+            "reason": (_vehicle_var_rule(date_obj.weekday())[1] if muhurt_type == "vehicle" else "वार की सामान्य गणना उपलब्ध है")
         },
         "nakshatra": {
             "name": "नक्षत्र", "value": details["nakshatra"],
-            "status": "good", "reason": "नक्षत्र की गणना उपलब्ध है"
+            "status": (_vehicle_nakshatra_rule(details["nakshatra"])[0] if muhurt_type == "vehicle" else "good"),
+            "reason": (_vehicle_nakshatra_rule(details["nakshatra"])[1] if muhurt_type == "vehicle" else "नक्षत्र की गणना उपलब्ध है")
         },
         "yoga": {
             "name": "योग", "value": details["yog"],
-            "status": "good", "reason": "योग की गणना उपलब्ध है"
+            "status": (_vehicle_yoga_rule(details["yog"])[0] if muhurt_type == "vehicle" else "good"),
+            "reason": (_vehicle_yoga_rule(details["yog"])[1] if muhurt_type == "vehicle" else "योग की गणना उपलब्ध है")
         },
         "karana": {
             "name": "करण", "value": details["karan_1"],
-            "status": "good" if details["karan_1"] != "विष्टि" else "avoid",
-            "reason": "विष्टि/भद्रा होने पर सामान्य मुहूर्त में वर्जित"
+            "status": (_vehicle_karana_rule(details["karan_1"])[0] if muhurt_type == "vehicle" else ("good" if details["karan_1"] != "विष्टि" else "avoid")),
+            "reason": (_vehicle_karana_rule(details["karan_1"])[1] if muhurt_type == "vehicle" else "विष्टि/भद्रा होने पर सामान्य मुहूर्त में वर्जित")
         }
     }
 
@@ -721,23 +819,34 @@ def muhurt_day_record(date_obj, city, lat, lon, target_rashi_idx=None):
         }
 
     factors["panchak"] = {
-        "name": "पंचक", "value": "जाँच हेतु",
-        "status": "special", "reason": "पंचक नियम अलग rule module में लागू होगा"
+        "name": "पंचक", "value": "समय/नक्षत्र के अनुसार जाँच",
+        "status": "special", "reason": "वाहन मुहूर्त में पंचक को स्वतः hard-fail नहीं किया गया है"
     }
 
     choghadiya = _choghadiya_intervals(date_obj, sunrise_dt, sunset_dt)
     factors["choghadiya"] = {
-        "name": "चौघड़िया", "value": "शुभ/लाभ/अमृत/चर उपलब्ध",
+        "name": "चौघड़िया",
+        "value": ", ".join(sorted({x["name"] for x in choghadiya if x["name"] in CHOGADIYA_GOOD})) or "उपलब्ध नहीं",
         "status": "good" if any(x["name"] in CHOGADIYA_GOOD for x in choghadiya) else "avoid",
-        "reason": "शुभ, लाभ, अमृत और चर खंडों से समय चुना जाएगा"
+        "reason": "अमृत, शुभ, लाभ और चर से वास्तविक समय चुना जाएगा"
     }
 
-    # Current implementation treats the explicitly established Moon/Tithi
-    # rules as hard date filters.  Other factors are represented and kept
-    # modular until their exact traditional rules are finalized in lessons.
+    if muhurt_type == "vehicle":
+        durmuhurt = _durmuhurt_periods(date_obj, sunrise_dt, sunset_dt)
+        factors["durmuhurt"] = {
+            "name": "दुर्मुहूर्त",
+            "value": ", ".join(_format_range(a, b) for a, b in durmuhurt) or "उपलब्ध नहीं",
+            "status": "good",
+            "reason": "इन समय-खंडों को वाहन के candidate time से हटाया जाएगा"
+        }
+        blocked = list(kaal.values()) + durmuhurt
+    else:
+        blocked = list(kaal.values())
+
+    # Moon 4/8/12 is the common first filter for every Muhurt type.
+    # Other vehicle-specific factors are then applied to the candidate.
     hard_fail = any(f["status"] == "avoid" for f in factors.values())
-    blocked = list(kaal.values())
-    windows = _candidate_windows(date_obj, sunrise_dt, sunset_dt, choghadiya, blocked)
+    windows = [] if moon_status == "avoid" else _candidate_windows(date_obj, sunrise_dt, sunset_dt, choghadiya, blocked)
 
     # If a tithi/position hard-fails, no complete Muhurt is returned for this date.
     complete = (not hard_fail and bool(windows))
@@ -760,13 +869,13 @@ def muhurt_day_record(date_obj, city, lat, lon, target_rashi_idx=None):
     }
 
 
-def muhurt_search(start_date, city, lat, lon, target_rashi_idx=None, limit=5):
+def muhurt_search(start_date, city, lat, lon, target_rashi_idx=None, limit=5, muhurt_type="general"):
     end_date = _three_month_end(start_date)
     full = []
     partial = []
     cursor = start_date
     while cursor <= end_date:
-        record = muhurt_day_record(cursor, city, lat, lon, target_rashi_idx)
+        record = muhurt_day_record(cursor, city, lat, lon, target_rashi_idx, muhurt_type)
         if record["complete_match"]:
             full.append(record)
             if len(full) >= limit:
@@ -784,6 +893,7 @@ def muhurt_search(start_date, city, lat, lon, target_rashi_idx=None, limit=5):
     return {
         "success": True,
         "search": {
+            "muhurt_type": muhurt_type,
             "start_date": start_date.strftime("%Y-%m-%d"),
             "end_date": end_date.strftime("%Y-%m-%d"),
             "location": {"city": city, "latitude": lat, "longitude": lon},
@@ -859,7 +969,8 @@ def home():
             "/api/generate-kundali?date=YYYY-MM-DD&time=HH:MM&city=Ujjain&lat=23.1765&lon=75.7885",
             "/api/location?q=Ujjain",
             "/api/dasha?date=YYYY-MM-DD&time=HH:MM&lat=23.1765&lon=75.7885",
-            "/api/muhurt-search?date=YYYY-MM-DD&city=Ujjain&lat=23.1765&lon=75.7885&rashi=मेष"
+            "/api/muhurt-search?date=YYYY-MM-DD&city=Ujjain&lat=23.1765&lon=75.7885&rashi=मेष",
+            "/api/muhurt-search?date=YYYY-MM-DD&city=Ujjain&lat=23.1765&lon=75.7885&rashi=मेष&muhurt_type=vehicle"
         ]
     })
 
@@ -1024,6 +1135,7 @@ def muhurt_search_api():
       date=YYYY-MM-DD (optional; defaults to today in IST)
       city, lat, lon (optional; defaults to Ujjain)
       rashi / chandra_rashi (optional; user's reference Moon Rashi)
+      muhurt_type / type (optional; general or vehicle; default general)
       limit (optional; maximum 5)
     """
     try:
@@ -1048,7 +1160,12 @@ def muhurt_search_api():
                 return jsonify({"success": False, "error": "Invalid Rashi"}), 400
 
         limit = min(5, max(1, int(request.args.get("limit", 5))))
-        return jsonify(muhurt_search(start_date, city, lat, lon, target_idx, limit))
+        muhurt_type = (request.args.get("muhurt_type") or request.args.get("type") or "general").strip().lower()
+        if muhurt_type in ("वाहन", "vehicle", "vahan", "vahan-muhurt"):
+            muhurt_type = "vehicle"
+        elif muhurt_type not in ("general", "samanya", "सामान्य", "सामान्य-मुहूर्त"):
+            return jsonify({"success": False, "error": "Invalid Muhurt type. Use general or vehicle."}), 400
+        return jsonify(muhurt_search(start_date, city, lat, lon, target_idx, limit, muhurt_type))
     except ValueError as e:
         return jsonify({"success": False, "error": str(e)}), 400
     except Exception as e:
