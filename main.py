@@ -846,7 +846,7 @@ def _choghadiya_intervals(local_date, sunrise, sunset):
     if not sunrise or not sunset or sunset <= sunrise:
         return result
     day_parts = _period_between(sunrise, sunset, 8)
-    day_names = CHOGADIYA_DAY[local_date.weekday()]
+    day_names = CHOGHADIYA_DAY[local_date.weekday()]
     for i, (a, b) in enumerate(day_parts):
         result.append({"name": day_names[i], "start": a, "end": b, "period": "day"})
     # Night is sunset to next day's sunrise.
