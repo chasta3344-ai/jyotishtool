@@ -478,7 +478,7 @@ def calculate_vimshottari(dob_local, moon_lon):
     }
 
 # ============================================================
-# MUHURT SEARCH ENGINE
+# MUHURT SEARCH ENGINE & DHARMA SINDHU RULES
 # ============================================================
 MUHURT_TITHI_GOOD = {2, 3, 5, 7, 10, 11, 15}
 MUHURT_TITHI_AVOID = {4, 9, 14, 30}
@@ -498,6 +498,7 @@ CHOGADIYA_NIGHT = {
 }
 CHOGADIYA_GOOD = {"शुभ", "लाभ", "अमृत", "चर"}
 
+# 1. BUSINESS / SHOP OPENING (विपणि-क्रय-विक्रय / व्यापार आरम्भ)
 BUSINESS_TITHI_AVOID = {4, 9, 14, 30}
 BUSINESS_VAR_AVOID = {1}
 BUSINESS_MRDU = {"अनुराधा", "रेवती", "मृगशिरा"}
@@ -509,31 +510,27 @@ CHANDRA_BALA_GOOD = {1, 3, 6, 7, 10, 11}
 
 def _business_tithi_rule(tithi_no, paksha):
     if tithi_no in BUSINESS_TITHI_AVOID:
-        return "avoid", "रिक्ता तिथि/अमावस्या व्यवसायिक मुहूर्त में वर्ज्य है"
-    return "good", "धर्मसिन्धु के विपणि-क्रय-विक्रय नियम में यह तिथि वर्जित नहीं है"
+        return "avoid", "रिक्ता तिथि/अमावस्या व्यापार मुहूर्त में वर्ज्य है"
+    return "good", "धर्मसिन्धु के नियम के अनुसार तिथि अनुकूल है"
 
 def _business_var_rule(weekday):
     if weekday in BUSINESS_VAR_AVOID:
-        return "avoid", "मंगलवार व्यवसायिक मुहूर्त में वर्ज्य है"
-    return "good", "मंगलवार को छोड़कर वार स्वीकार्य है"
+        return "avoid", "मंगलवार व्यापार आरम्भ में वर्ज्य है"
+    return "good", "व्यापार के लिए वार स्वीकार्य है"
 
 def _business_nakshatra_rule(name):
-    if name in BUSINESS_DHRUVA:
-        return "good", "ध्रुव नक्षत्र — व्यवसाय/विपणि आरम्भ के लिए शुभ"
-    if name in BUSINESS_KSHIPRA:
-        return "good", "क्षिप्र नक्षत्र — व्यवसाय/विपणि आरम्भ के लिए शुभ"
-    if name in BUSINESS_MRDU:
-        return "good", "मृदु नक्षत्र — व्यवसाय/विपणि आरम्भ के लिए शुभ"
-    return "avoid", "विपणि-क्रय-विक्रय के लिए मृदु, क्षिप्र या ध्रुव नक्षत्र अपेक्षित है"
+    if name in BUSINESS_DHRUVA or name in BUSINESS_KSHIPRA or name in BUSINESS_MRDU:
+        return "good", "ध्रुव, क्षिप्र या मृदु नक्षत्र — व्यापार आरम्भ के लिए शुभ"
+    return "avoid", "व्यापार के लिए मृदु, क्षिप्र या ध्रुव नक्षत्र अपेक्षित है"
 
 def _business_yoga_rule(name):
     if name in BUSINESS_YOGA_AVOID:
-        return "avoid", "यह अशुभ योग व्यवसायिक मुहूर्त में त्याज्य है"
+        return "avoid", "यह अशुभ योग व्यापार मुहूर्त में त्याज्य है"
     return "good", "त्याज्य योगों में नहीं है"
 
 def _business_karana_rule(name):
     if name in BUSINESS_KARANA_AVOID:
-        return "avoid", "विष्टि/भद्रा व्यवसायिक मुहूर्त में वर्ज्य है"
+        return "avoid", "विष्टि/भद्रा व्यापार में वर्ज्य है"
     return "good", "करण वर्जित नहीं है"
 
 def _chandra_bala_rule(current_rashi, target_rashi):
@@ -544,6 +541,39 @@ def _chandra_bala_rule(current_rashi, target_rashi):
         return "good", f"चन्द्रबल अनुकूल — जन्म राशि से {distance}वाँ स्थान"
     return "special", f"चन्द्रबल में विशेष विचार — जन्म राशि से {distance}वाँ स्थान"
 
+# 2. BUYING OR SELLING (क्रय-विक्रय)
+BUYSELL_TITHI_AVOID = {4, 9, 14, 30}
+BUYSELL_VAR_AVOID = {1}
+BUYSELL_NAKSHATRA_GOOD = {
+    "रोहिणी", "पुनर्वसु", "पुष्य", "हस्त", "स्वाती", "श्रवण", "धनिष्ठा", "शतभिषा"
+}
+
+def _buysell_tithi_rule(tithi_no, paksha):
+    if tithi_no in BUYSELL_TITHI_AVOID:
+        return "avoid", "रिक्ता तिथि क्रय-विक्रय में वर्जित है"
+    return "good", "क्रय-विक्रय के लिए अनुकूल तिथि"
+
+def _buysell_var_rule(weekday):
+    if weekday in BUYSELL_VAR_AVOID:
+        return "avoid", "मंगलवार क्रय-विक्रय के लिए सामान्यतः वर्ज्य है"
+    return "good", "वार स्वीकार्य है"
+
+def _buysell_nakshatra_rule(name):
+    if name in BUYSELL_NAKSHATRA_GOOD:
+        return "good", "क्रय-विक्रय के लिए अनुकूल नक्षत्र"
+    return "special", "नक्षत्र के लिए मध्यम विचार"
+
+def _buysell_yoga_rule(name):
+    if name in BUSINESS_YOGA_AVOID:
+        return "avoid", "यह योग क्रय-विक्रय में त्याज्य है"
+    return "good", "योग अनुकूल है"
+
+def _buysell_karana_rule(name):
+    if name in BUSINESS_KARANA_AVOID:
+        return "avoid", "विष्टि/भद्रा क्रय-विक्रय में वर्जित है"
+    return "good", "करण स्वीकार्य है"
+
+# 3. YATRA / TRAVEL (यात्रा मुहूर्त)
 YATRA_TITHI_AVOID = {1, 4, 6, 8, 9, 12, 14, 15, 30}
 YATRA_TITHI_GOOD = {2, 3, 5, 7, 10, 11, 13}
 YATRA_VAR_AVOID = {1, 5, 6}
@@ -572,7 +602,7 @@ def _yatra_tithi_rule(tithi_no, paksha):
         return "avoid", "यह तिथि यात्रा आरम्भ के लिए वर्ज्य मानी जाती है"
     if tithi_no in YATRA_TITHI_GOOD:
         return "good", "यात्रा के लिए अनुकूल तिथि"
-    return "special", "तिथि के लिए अन्य यात्रा-अंगों के साथ विशेष विचार"
+    return "special", "तिथि के लिए विशेष विचार"
 
 def _yatra_var_rule(weekday):
     if weekday in YATRA_VAR_AVOID:
@@ -584,14 +614,12 @@ def _yatra_nakshatra_rule(name):
         return "good", "यात्रा के लिए शुभ/चल नक्षत्र"
     if name in YATRA_NAKSHATRA_AVOID:
         return "avoid", "यात्रा के लिए वर्ज्य नक्षत्र"
-    if name in {"रोहिणी", "उत्तरा फाल्गुनी", "उत्तराषाढ़ा", "उत्तराभाद्रपद"}:
-        return "special", "स्थिर नक्षत्र — यात्रा में मध्यम/विशेष विचार"
     return "special", "नक्षत्र के लिए विशेष विचार"
 
 def _yatra_yoga_rule(name):
     if name in YATRA_YOGA_AVOID:
         return "avoid", "यह योग यात्रा आरम्भ में त्याज्य है"
-    return "good", "त्याज्य यात्रा-योगों में नहीं है"
+    return "good", "यात्रा योग अनुकूल है"
 
 def _yatra_karana_rule(name):
     if name in YATRA_KARANA_AVOID:
@@ -610,7 +638,7 @@ def _yatra_disha_rule(weekday, direction):
 def _yatra_nakshatra_shool_rule(nakshatra, direction):
     if not direction:
         return "not_checked", "यात्रा की दिशा उपलब्ध नहीं है"
-    return "special", "नक्षत्र-शूल परंपरा अनुसार अलग तालिकाएँ हैं; दिशा जाँच के लिए विशेष विचार"
+    return "special", "नक्षत्र-शूल परंपरा अनुसार दिशा जाँच के लिए विशेष विचार"
 
 def _yatra_chandra_bala_rule(current_rashi, target_rashi):
     if target_rashi is None:
@@ -633,63 +661,59 @@ def _yatra_tara_bala_rule(current_nakshatra, janma_nakshatra):
         return "avoid", f"ताराबल में {tara}वीं तारा — यात्रा के लिए अशुभ"
     return "good", f"ताराबल अनुकूल — {tara}वीं तारा"
 
+# VEHICLE MUHURT RULES
 VEHICLE_TITHI_GOOD = {2, 3, 5, 7, 10, 11, 13}
 VEHICLE_TITHI_AVOID = {4, 9, 14, 30}
-VEHICLE_TITHI_SPECIAL = {1, 6, 8, 12, 15, 28}
-
 VEHICLE_VAR_GOOD = {0, 2, 3, 4}
 VEHICLE_VAR_AVOID = {1}
-VEHICLE_VAR_SPECIAL = {5, 6}
-
-VEHICLE_NAKSHATRA_GOOD = {
-    "पुनर्वसु", "स्वाती", "श्रवण", "धनिष्ठा", "शतभिषा"
-}
-
-VEHICLE_YOGA_AVOID = {
-    "व्यतीपात", "वैधृति", "गण्ड", "अतिगण्ड",
-    "वज्र", "शूल", "परिघ"
-}
-
-VEHICLE_KARANA_GOOD = {
-    "बव", "बालव", "कौलव", "तैतिल", "गर", "वणिज"
-}
+VEHICLE_NAKSHATRA_GOOD = {"पुनर्वसु", "स्वाती", "श्रवण", "धनिष्ठा", "शतभिषा"}
+VEHICLE_YOGA_AVOID = {"व्यतीपात", "वैधृति", "गण्ड", "अतिगण्ड", "वज्र", "शूल", "परिघ"}
 VEHICLE_KARANA_AVOID = {"विष्टि", "भद्रा"}
-VEHICLE_KARANA_SPECIAL = {"शकुनि", "चतुष्पाद", "नाग", "किंस्तुघ्न"}
 
 def _vehicle_tithi_rule(tithi_no, paksha):
     if tithi_no in VEHICLE_TITHI_AVOID:
         return "avoid", "यह तिथि वाहन मुहूर्त में वर्ज्य है"
     if tithi_no in VEHICLE_TITHI_GOOD:
         return "good", "वाहन मुहूर्त के लिए अनुकूल तिथि"
-    if tithi_no == 28 and paksha == "कृष्ण पक्ष":
-        return "special", "कृष्ण त्रयोदशी के लिए अन्य अंगों की विशेष जाँच"
-    return "special", "तिथि के लिए अन्य वाहन-मुहूर्त अंगों के साथ विचार"
+    return "special", "तिथि के लिए विशेष विचार"
 
 def _vehicle_var_rule(weekday):
     if weekday in VEHICLE_VAR_AVOID:
-        return "avoid", "मंगलवार वाहन मुहूर्त के लिए वर्ज्य रखा गया है"
+        return "avoid", "मंगलवार वाहन मुहूर्त के लिए वर्ज्य है"
     if weekday in VEHICLE_VAR_GOOD:
-        return "good", "सोम/बुध/गुरु/शुक्र वाहन मुहूर्त के लिए शुभ"
-    return "special", "शनिवार/रविवार को अन्य अंगों के साथ विशेष विचार"
+        return "good", "वार वाहन मुहूर्त के लिए शुभ"
+    return "special", "विशेष विचार योग्य वार"
 
 def _vehicle_nakshatra_rule(name):
     if name in VEHICLE_NAKSHATRA_GOOD:
         return "good", "चर नक्षत्र वाहन के लिए विशेष रूप से अनुकूल"
-    return "special", "नक्षत्र मुख्य वाहन सूची में नहीं है; अन्य अंगों के साथ विचार"
+    return "special", "नक्षत्र के साथ अन्य अंगों का विचार"
 
 def _vehicle_yoga_rule(name):
     if name in VEHICLE_YOGA_AVOID:
         return "avoid", "यह योग वाहन मुहूर्त में त्याज्य दोष है"
-    return "good", "त्याज्य योगों में नहीं है"
+    return "good", "योग अनुकूल है"
 
 def _vehicle_karana_rule(name):
     if name in VEHICLE_KARANA_AVOID:
         return "avoid", "विष्टि/भद्रा वाहन मुहूर्त में वर्ज्य है"
-    if name in VEHICLE_KARANA_GOOD:
-        return "good", "चर करण वाहन मुहूर्त के लिए स्वीकार्य है"
-    if name in VEHICLE_KARANA_SPECIAL:
-        return "special", "स्थिर करण सामान्य वाहन मुहूर्त के लिए विशेष विचार योग्य है"
-    return "special", "करण के लिए विशेष जाँच आवश्यक है"
+    return "good", "करण स्वीकार्य है"
+
+# GENERAL MUHURT RULES
+def _tithi_rule(tithi_no, paksha):
+    if tithi_no in MUHURT_TITHI_AVOID:
+        return "avoid", "तिथि सामान्य मुहूर्त के लिए वर्जित है"
+    if tithi_no in MUHURT_TITHI_GOOD:
+        return "good", "तिथि सामान्य मुहूर्त के लिए अनुकूल है"
+    return "special", "इस तिथि के लिए विशेष जाँच आवश्यक है"
+
+def _moon_position_rule(current_rashi, target_rashi):
+    if target_rashi is None:
+        return "not_checked", "लक्षित चंद्र राशि उपलब्ध नहीं है"
+    distance = (current_rashi - target_rashi) % 12 + 1
+    if distance in (4, 8, 12):
+        return "avoid", f"चंद्रमा लक्षित राशि से {distance}वें स्थान में है"
+    return "good", f"चंद्रमा लक्षित राशि से {distance}वें स्थान में है"
 
 def _durmuhurt_periods(local_date, sunrise, sunset):
     if not sunrise or not sunset or sunset <= sunrise:
@@ -842,27 +866,6 @@ def _tithi_number(panchang):
         return idx + 1
     return idx + 1 if idx >= 15 else idx + 16
 
-def _tithi_rule(tithi_no, paksha):
-    if tithi_no in MUHURT_TITHI_AVOID:
-        return "avoid", "तिथि सामान्य मुहूर्त के लिए वर्जित है"
-    if tithi_no == 15:
-        return "good", "पूर्णिमा सामान्यतः स्वीकार्य है"
-    if tithi_no == 13 and paksha == "शुक्ल पक्ष":
-        return "good", "शुक्ल त्रयोदशी स्वीकार्य है"
-    if tithi_no in MUHURT_TITHI_GOOD:
-        return "good", "तिथि सामान्य मुहूर्त के लिए अनुकूल है"
-    if tithi_no in MUHURT_TITHI_SPECIAL:
-        return "special", "इस तिथि के लिए विशेष जाँच आवश्यक है"
-    return "special", "तिथि के लिए विशेष जाँच आवश्यक है"
-
-def _moon_position_rule(current_rashi, target_rashi):
-    if target_rashi is None:
-        return "not_checked", "लक्षित चंद्र राशि उपलब्ध नहीं है"
-    distance = (current_rashi - target_rashi) % 12 + 1
-    if distance in (4, 8, 12):
-        return "avoid", f"चंद्रमा लक्षित राशि से {distance}वें स्थान में है"
-    return "good", f"चंद्रमा लक्षित राशि से {distance}वें स्थान में है"
-
 def _time_from_text(text_value, base_date):
     if not text_value or text_value == "--":
         return None
@@ -1003,10 +1006,7 @@ def _muhurt_full_panchang(date_obj, p, choghadiya, kaal, durmuhurt):
     }
 
 def _candidate_windows(local_date, sunrise, sunset, choghadiya, blocked):
-    """Create candidate windows.
-    Prioritizes Day Choghadiya first; if no good day slots are found,
-    it falls back to Night Choghadiya.
-    """
+    """Prioritizes Day Choghadiya first; falls back to Night Choghadiya if needed."""
     day_candidates = []
     night_candidates = []
 
@@ -1053,14 +1053,38 @@ def muhurt_day_record(date_obj, city, lat, lon, target_rashi_idx=None, muhurt_ty
     moon_status, moon_reason = _moon_position_rule(moon_idx, target_rashi_idx)
 
     tithi_no = _tithi_number(p)
+    
+    # Rule selector based on Muhurt Type
     if muhurt_type == "vehicle":
         tithi_status, tithi_reason = _vehicle_tithi_rule(tithi_no, details["paksha"])
+        var_status, var_reason = _vehicle_var_rule(date_obj.weekday())
+        nak_status, nak_reason = _vehicle_nakshatra_rule(details["nakshatra"])
+        yoga_status, yoga_reason = _vehicle_yoga_rule(details["yog"])
+        karan_status, karan_reason = _vehicle_karana_rule(details["karan_1"])
     elif muhurt_type == "business":
         tithi_status, tithi_reason = _business_tithi_rule(tithi_no, details["paksha"])
+        var_status, var_reason = _business_var_rule(date_obj.weekday())
+        nak_status, nak_reason = _business_nakshatra_rule(details["nakshatra"])
+        yoga_status, yoga_reason = _business_yoga_rule(details["yog"])
+        karan_status, karan_reason = _business_karana_rule(details["karan_1"])
+    elif muhurt_type == "buysell":
+        tithi_status, tithi_reason = _buysell_tithi_rule(tithi_no, details["paksha"])
+        var_status, var_reason = _buysell_var_rule(date_obj.weekday())
+        nak_status, nak_reason = _buysell_nakshatra_rule(details["nakshatra"])
+        yoga_status, yoga_reason = _buysell_yoga_rule(details["yog"])
+        karan_status, karan_reason = _buysell_karana_rule(details["karan_1"])
     elif muhurt_type == "yatra":
         tithi_status, tithi_reason = _yatra_tithi_rule(tithi_no, details["paksha"])
+        var_status, var_reason = _yatra_var_rule(date_obj.weekday())
+        nak_status, nak_reason = _yatra_nakshatra_rule(details["nakshatra"])
+        yoga_status, yoga_reason = _yatra_yoga_rule(details["yog"])
+        karan_status, karan_reason = _yatra_karana_rule(details["karan_1"])
     else:
         tithi_status, tithi_reason = _tithi_rule(tithi_no, details["paksha"])
+        var_status, var_reason = "good", "वार की सामान्य गणना उपलब्ध है"
+        nak_status, nak_reason = "good", "नक्षत्र की गणना उपलब्ध है"
+        yoga_status, yoga_reason = "good", "योग की गणना उपलब्ध है"
+        karan_status, karan_reason = ("good" if details["karan_1"] != "विष्टि" else "avoid"), "विष्टि/भद्रा होने पर सामान्य मुहूर्त में वर्जित"
 
     factors = {
         "chandra_rashi": {
@@ -1073,27 +1097,23 @@ def muhurt_day_record(date_obj, city, lat, lon, target_rashi_idx=None, muhurt_ty
         },
         "var": {
             "name": "वार", "value": details["var"],
-            "status": (_vehicle_var_rule(date_obj.weekday())[0] if muhurt_type == "vehicle" else _business_var_rule(date_obj.weekday())[0] if muhurt_type == "business" else _yatra_var_rule(date_obj.weekday())[0] if muhurt_type == "yatra" else "good"),
-            "reason": (_vehicle_var_rule(date_obj.weekday())[1] if muhurt_type == "vehicle" else _business_var_rule(date_obj.weekday())[1] if muhurt_type == "business" else _yatra_var_rule(date_obj.weekday())[1] if muhurt_type == "yatra" else "वार की सामान्य गणना उपलब्ध है")
+            "status": var_status, "reason": var_reason
         },
         "nakshatra": {
             "name": "नक्षत्र", "value": details["nakshatra"],
-            "status": (_vehicle_nakshatra_rule(details["nakshatra"])[0] if muhurt_type == "vehicle" else _business_nakshatra_rule(details["nakshatra"])[0] if muhurt_type == "business" else _yatra_nakshatra_rule(details["nakshatra"])[0] if muhurt_type == "yatra" else "good"),
-            "reason": (_vehicle_nakshatra_rule(details["nakshatra"])[1] if muhurt_type == "vehicle" else _business_nakshatra_rule(details["nakshatra"])[1] if muhurt_type == "business" else _yatra_nakshatra_rule(details["nakshatra"])[1] if muhurt_type == "yatra" else "नक्षत्र की गणना उपलब्ध है")
+            "status": nak_status, "reason": nak_reason
         },
         "yoga": {
             "name": "योग", "value": details["yog"],
-            "status": (_vehicle_yoga_rule(details["yog"])[0] if muhurt_type == "vehicle" else _business_yoga_rule(details["yog"])[0] if muhurt_type == "business" else _yatra_yoga_rule(details["yog"])[0] if muhurt_type == "yatra" else "good"),
-            "reason": (_vehicle_yoga_rule(details["yog"])[1] if muhurt_type == "vehicle" else _business_yoga_rule(details["yog"])[1] if muhurt_type == "business" else _yatra_yoga_rule(details["yog"])[1] if muhurt_type == "yatra" else "योग की गणना उपलब्ध है")
+            "status": yoga_status, "reason": yoga_reason
         },
         "karana": {
             "name": "करण", "value": details["karan_1"],
-            "status": (_vehicle_karana_rule(details["karan_1"])[0] if muhurt_type == "vehicle" else _business_karana_rule(details["karan_1"])[0] if muhurt_type == "business" else _yatra_karana_rule(details["karan_1"])[0] if muhurt_type == "yatra" else ("good" if details["karan_1"] != "विष्टि" else "avoid")),
-            "reason": (_vehicle_karana_rule(details["karan_1"])[1] if muhurt_type == "vehicle" else _business_karana_rule(details["karan_1"])[1] if muhurt_type == "business" else _yatra_karana_rule(details["karan_1"])[1] if muhurt_type == "yatra" else "विष्टि/भद्रा होने पर सामान्य मुहूर्त में वर्जित")
+            "status": karan_status, "reason": karan_reason
         }
     }
 
-    if muhurt_type == "business":
+    if muhurt_type in ("business", "buysell"):
         cb_status, cb_reason = _chandra_bala_rule(moon_idx, target_rashi_idx)
         factors["chandra_bala"] = {"name": "चन्द्रबल", "value": cb_reason, "status": cb_status, "reason": cb_reason}
 
@@ -1106,7 +1126,6 @@ def muhurt_day_record(date_obj, city, lat, lon, target_rashi_idx=None, muhurt_ty
         factors["nakshatra_shool"] = {"name": "नक्षत्र शूल", "value": direction or "दिशा नहीं दी गई", "status": ns_status, "reason": ns_reason}
         tb_status, tb_reason = _yatra_tara_bala_rule(details["nakshatra"], janma_nakshatra)
         factors["tara_bala"] = {"name": "ताराबल", "value": janma_nakshatra or "जन्म नक्षत्र नहीं दिया", "status": tb_status, "reason": tb_reason}
-        factors["yogini_shool"] = {"name": "योगिनी शूल", "value": "विशेष गणना", "status": "special", "reason": "योगिनी चक्र परंपरा अनुसार दिशा-आधारित जाँच"}
 
     sunrise = _time_from_text(timings.get("sunrise"), date_obj)
     sunset = _time_from_text(timings.get("sunset"), date_obj)
@@ -1135,7 +1154,7 @@ def muhurt_day_record(date_obj, city, lat, lon, target_rashi_idx=None, muhurt_ty
         "reason": "अमृत, शुभ, लाभ और चर से वास्तविक समय चुना जाएगा"
     }
 
-    if muhurt_type in ("vehicle", "business", "yatra"):
+    if muhurt_type in ("vehicle", "business", "buysell", "yatra"):
         factors["durmuhurt"] = {
             "name": "दुर्मुहूर्त",
             "value": ", ".join(_format_range(a, b) for a, b in durmuhurt) or "उपलब्ध नहीं",
@@ -1273,10 +1292,11 @@ def home():
             "/api/full-panchang-hindi?date=YYYY-MM-DD&city=Ujjain&lat=23.1765&lon=75.7885",
             "/api/generate-kundali?date=YYYY-MM-DD&time=HH:MM&city=Ujjain&lat=23.1765&lon=75.7885",
             "/api/location?q=Ujjain",
-            "/api/dasha?date=YYYY-MM-DD&time=HH:MM&lat=23.1765&lon=75.7885",
-            "/api/muhurt-search?date=YYYY-MM-DD&city=Ujjain&lat=23.1765&lon=75.7885&rashi=मेष",
+            "/api/muhurt-search?date=YYYY-MM-DD&city=Ujjain&lat=23.1765&lon=75.7885&rashi=मेष&muhurt_type=general",
             "/api/muhurt-search?date=YYYY-MM-DD&city=Ujjain&lat=23.1765&lon=75.7885&rashi=मेष&muhurt_type=vehicle",
-            "/api/muhurt-search?date=YYYY-MM-DD&city=Ujjain&lat=23.1765&lon=75.7885&rashi=मेष&muhurt_type=business"
+            "/api/muhurt-search?date=YYYY-MM-DD&city=Ujjain&lat=23.1765&lon=75.7885&rashi=मेष&muhurt_type=business",
+            "/api/muhurt-search?date=YYYY-MM-DD&city=Ujjain&lat=23.1765&lon=75.7885&rashi=मेष&muhurt_type=buysell",
+            "/api/muhurt-search?date=YYYY-MM-DD&city=Ujjain&lat=23.1765&lon=75.7885&rashi=मेष&muhurt_type=yatra&direction=उत्तर"
         ]
     })
 
@@ -1455,18 +1475,23 @@ def muhurt_search_api():
         janma_nakshatra = (request.args.get("janma_nakshatra") or request.args.get("birth_nakshatra") or "").strip() or None
         if janma_nakshatra and janma_nakshatra not in NAKSHATRA_NAMES:
             return jsonify({"success": False, "error": "Invalid Janma Nakshatra"}), 400
+        
         muhurt_type = (request.args.get("muhurt_type") or request.args.get("type") or "general").strip().lower()
         if muhurt_type in ("वाहन", "vehicle", "vahan", "vahan-muhurt"):
             muhurt_type = "vehicle"
-        elif muhurt_type in ("व्यवसायिक", "व्यवसाय", "business", "vyavasayik", "vyavsayik", "vyavsay"):
+        elif muhurt_type in ("व्यवसायिक", "व्यवसाय", "business", "vyavasayik", "vyavsayik", "vyavsay", "shop"):
             muhurt_type = "business"
+        elif muhurt_type in ("क्रय-विक्रय", "buy", "sell", "buysell", "purchase"):
+            muhurt_type = "buysell"
         elif muhurt_type in ("यात्रा", "यात्रा-मुहूर्त", "yatra", "travel", "travel-muhurt"):
             muhurt_type = "yatra"
         elif muhurt_type not in ("general", "samanya", "सामान्य", "सामान्य-मुहूर्त"):
-            return jsonify({"success": False, "error": "Invalid Muhurt type. Use general, vehicle, business, or yatra."}), 400
+            return jsonify({"success": False, "error": "Invalid Muhurt type. Use general, vehicle, business, buysell, or yatra."}), 400
+        
         if muhurt_type == "yatra":
             if not direction or direction not in YATRA_DIRECTIONS:
                 return jsonify({"success": False, "error": "Yatra direction is required. Use a valid direction."}), 400
+        
         return jsonify(muhurt_search(start_date, city, lat, lon, target_idx, limit, muhurt_type, direction, janma_nakshatra))
     except ValueError as e:
         return jsonify({"success": False, "error": str(e)}), 400
