@@ -768,6 +768,147 @@ def _three_month_end(start_date):
     return dt.date(year, month, day)
 
 
+# ============================================================
+# PANCHAK CALCULATION
+# ============================================================
+# Panchak begins when the sidereal Moon enters the 3rd pada of
+# Dhanishtha (296°40') and ends when it leaves Revati at 360°.
+# This covers the final two padas of Dhanishtha, all of Shatabhisha,
+# Purva Bhadrapada, Uttara Bhadrapada and Revati.
+PANCHAK_START_LON = (23 * 30.0) + (20.0 / 60.0)  # 296°40'
+PANCHAK_END_LON = 360.0
+
+PANCHAK_TYPES = {
+    6: "रोग पंचक",       # रविवार
+    0: "राज पंचक",       # सोमवार
+    1: "अग्नि पंचक",     # मंगलवार
+    2: "दोषरहित पंचक",   # बुधवार
+    3: "दोषरहित पंचक",   # गुरुवार
+    4: "चोर पंचक",       # शुक्रवार
+    5: "मृत्यु पंचक",    # शनिवार
+}
+
+
+def _moon_crossing_ut(longitude, start_jd):
+    """Return the next sidereal Moon crossing of a longitude."""
+    return swe.mooncross_ut(
+        longitude % 360.0,
+        start_jd,
+        swe.FLG_SWIEPH | swe.FLG_SIDEREAL
+    )
+
+
+def _jd_to_ist(jd):
+    y, m, d, h = swe.revjul(jd, swe.GREG_CAL)
+    utc_value = pytz.utc.localize(
+        dt.datetime(y, m, d) + dt.timedelta(hours=h)
+    )
+    return utc_value.astimezone(IST)
+
+
+def _previous_moon_crossing(longitude, reference_jd):
+    """Find the most recent Moon crossing of longitude before reference."""
+    search_jd = reference_jd - 35.0
+    last = None
+
+    for _ in range(4):
+        crossing = _moon_crossing_ut(longitude, search_jd)
+        if crossing >= reference_jd:
+            break
+        last = crossing
+        search_jd = crossing + (1.0 / 864000.0)
+
+    return last
+
+
+def _next_moon_crossing(longitude, reference_jd):
+    """Find the next Moon crossing of longitude after reference."""
+    return _moon_crossing_ut(
+        longitude,
+        reference_jd + (1.0 / 864000.0)
+    )
+
+
+def _panchak_window_for_date(date_obj):
+    """Return the Panchak window overlapping the supplied IST date.
+
+    The actual boundaries are astronomical Moon-longitude crossings.
+    Panchak starts at sidereal 296°40' and ends at sidereal 0°/360°.
+    The Panchak type is named from the weekday of its local start time.
+    """
+    start_of_day = IST.localize(dt.datetime.combine(date_obj, dt.time(0, 0)))
+    end_of_day = start_of_day + dt.timedelta(days=1)
+    start_jd = get_julian_day(start_of_day)
+    end_jd = get_julian_day(end_of_day)
+
+    # Find the latest Panchak-start crossing before the end of this day.
+    p_start = _previous_moon_crossing(PANCHAK_START_LON, end_jd)
+    if p_start is None:
+        return None
+
+    # Find the end of that Panchak cycle.  A Moon crossing of 0°/360°
+    # follows the 296°40' crossing within the same cycle.
+    p_end = _next_moon_crossing(PANCHAK_END_LON, p_start)
+    if p_end is None:
+        return None
+
+    # The date overlaps the Panchak window only if the two periods overlap.
+    if p_end <= start_jd or p_start >= end_jd:
+        # If the latest start was still before this date but its end is also
+        # before this date, look for the next Panchak start.
+        next_start = _next_moon_crossing(PANCHAK_START_LON, start_jd - (1.0 / 864000.0))
+        if next_start >= end_jd:
+            return None
+        next_end = _next_moon_crossing(PANCHAK_END_LON, next_start)
+        if next_end <= start_jd:
+            return None
+        p_start, p_end = next_start, next_end
+
+    start_dt = _jd_to_ist(p_start)
+    end_dt = _jd_to_ist(p_end)
+    p_type = PANCHAK_TYPES[start_dt.weekday()]
+
+    return {
+        "active": True,
+        "type": p_type,
+        "start": start_dt,
+        "end": end_dt,
+        "start_display": start_dt.strftime("%d-%m-%Y %I:%M %p"),
+        "end_display": end_dt.strftime("%d-%m-%Y %I:%M %p"),
+    }
+
+
+def _panchak_status_for_date(date_obj):
+    """Return a compact Panchak factor for the Muhurt result."""
+    try:
+        window = _panchak_window_for_date(date_obj)
+    except Exception:
+        window = None
+
+    if not window:
+        return {
+            "name": "पंचक",
+            "value": "नहीं",
+            "status": "good",
+            "reason": "पंचक अवधि सक्रिय नहीं है",
+            "active": False,
+            "type": None,
+            "start": None,
+            "end": None,
+        }
+
+    return {
+        "name": "पंचक",
+        "value": f"हाँ — {window['type']}",
+        "status": "special",
+        "reason": "पंचक अवधि सक्रिय है",
+        "active": True,
+        "type": window["type"],
+        "start": window["start_display"],
+        "end": window["end_display"],
+    }
+
+
 def _tithi_number(panchang):
     name = panchang["details"].get("tithi", "")
     paksha = panchang["details"].get("paksha", "")
@@ -1093,10 +1234,10 @@ def muhurt_day_record(date_obj, city, lat, lon, target_rashi_idx=None, muhurt_ty
             "reason": "यह समय मुहूर्त विंडो में शामिल नहीं किया जाएगा" if key in kaal else "समय उपलब्ध नहीं"
         }
 
-    factors["panchak"] = {
-        "name": "पंचक", "value": "समय/नक्षत्र के अनुसार जाँच",
-        "status": "special", "reason": ("व्यवसायिक मुहूर्त में पंचक को स्वतः hard-fail नहीं किया गया है" if muhurt_type == "business" else "यात्रा मुहूर्त में पंचक को स्वतः hard-fail नहीं किया गया है" if muhurt_type == "yatra" else "वाहन मुहूर्त में पंचक को स्वतः hard-fail नहीं किया गया है")
-    }
+    # Panchak is calculated from the actual sidereal Moon transit.
+    # It is exposed as a factor but is not made a universal hard-fail here;
+    # individual Muhurt topics can apply their own Panchak restriction later.
+    factors["panchak"] = _panchak_status_for_date(date_obj)
 
     choghadiya = _choghadiya_intervals(date_obj, sunrise_dt, sunset_dt)
 
