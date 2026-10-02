@@ -9,6 +9,7 @@ import urllib.parse
 import urllib.request
 import json
 import os
+import calendar
 
 app = Flask(__name__)
 CORS(app)
@@ -283,8 +284,6 @@ def panchang_for_date(date_str, city, lat, lon):
     sun_rashi_idx = rashi_index(sun_lon)
     moon_rashi_idx = rashi_index(moon_lon)
 
-    # This preserves the original project's simple month convention.
-    # It is not a full drik month calculation.
     vikram = y + 57
     shaka = y - 78
     kali = y + 3101
@@ -301,9 +300,6 @@ def panchang_for_date(date_str, city, lat, lon):
         7: "हेमंत", 8: "हेमंत", 9: "शिशिर", 10: "शिशिर"
     }
 
-    # Ishta Kaal is traditionally sunrise-based. We expose the raw
-    # approximate clock value here; a full traditional ghati calculation
-    # can be added later without changing the API structure.
     ishta_kaal = "--"
     if sunrise_dt:
         noon_dt = IST.localize(dt.datetime(y, m, d, 12, 0))
@@ -385,11 +381,9 @@ def calculate_houses(jd, lat, lon):
             jd, lat, lon, b"P", swe.FLG_SIDEREAL
         )
         asc = normalize(ascmc[0])
-        # houses_ex with sidereal flag returns sidereal cusps.
         cusp_list = [normalize(cusps[i]) for i in range(12)]
         return asc, cusp_list
     except Exception:
-        # Fallback preserving compatibility with older pyswisseph builds.
         cusps, ascmc = swe.houses(jd, lat, lon, b"P")
         ayan = swe.get_ayanamsa_ut(jd)
         asc = normalize(ascmc[0] - ayan)
@@ -397,13 +391,10 @@ def calculate_houses(jd, lat, lon):
         return asc, cusp_list
 
 def house_from_equal_whole_sign(lon, asc_lon):
-    # North-Indian Vedic chart is commonly represented as whole-sign houses:
-    # the Lagna rashi is house 1, next rashi house 2, etc.
     return ((rashi_index(lon) - rashi_index(asc_lon)) % 12) + 1
 
 def manglik_status(mars_rashi, asc_rashi):
     house = ((mars_rashi - asc_rashi) % 12) + 1
-    # Common Lagna-based Manglik convention: 1, 4, 7, 8, 12.
     is_manglik = house in [1, 4, 7, 8, 12]
     return {
         "is_manglik": is_manglik,
@@ -415,7 +406,6 @@ def manglik_status(mars_rashi, asc_rashi):
 # VIMSHOTTARI DASHA
 # ============================================================
 def add_years(base_date, years):
-    # Tropical Gregorian calendar year fraction used only for dasha display.
     days = years * 365.2425
     return base_date + dt.timedelta(days=days)
 
@@ -487,20 +477,13 @@ def calculate_vimshottari(dob_local, moon_lon):
         "mahadasha": mahadashas
     }
 
-
 # ============================================================
 # MUHURT SEARCH ENGINE
 # ============================================================
-# General Muhurt search is intentionally modular.  Each factor is
-# calculated independently so the API can explain every ✓ / ✗ result.
-# Search window: today through the next 3 calendar months.
-
 MUHURT_TITHI_GOOD = {2, 3, 5, 7, 10, 11, 15}
-MUHURT_TITHI_AVOID = {4, 9, 14, 30}  # 30 = Amavasya
-MUHURT_TITHI_SPECIAL = {1, 6, 8, 12, 13, 28}  # 28 = Krishna Trayodashi
+MUHURT_TITHI_AVOID = {4, 9, 14, 30}
+MUHURT_TITHI_SPECIAL = {1, 6, 8, 12, 13, 28}
 
-# Choghadiya names.  Day sequences are arranged by weekday; night
-# sequences follow the traditional weekday sequence shifted by 4 places.
 CHOGHADIYA_DAY = {
     0: ["उद्वेग", "चर", "लाभ", "अमृत", "काल", "शुभ", "रोग", "उद्वेग"],
     1: ["अमृत", "काल", "शुभ", "रोग", "उद्वेग", "चर", "लाभ", "अमृत"],
@@ -515,12 +498,6 @@ CHOGADIYA_NIGHT = {
 }
 CHOGADIYA_GOOD = {"शुभ", "लाभ", "अमृत", "चर"}
 
-
-# ============================================================
-# BUSINESS / VYAVASAYIK MUHURT RULES
-# ============================================================
-# Dharma Sindhu: Vipani Kraya-Vikraya / opening a marketing outlet is best
-# in Mridu, Kshipra and Dhruva nakshatras, avoiding Rikta tithis and Tuesday.
 BUSINESS_TITHI_AVOID = {4, 9, 14, 30}
 BUSINESS_VAR_AVOID = {1}
 BUSINESS_MRDU = {"अनुराधा", "रेवती", "मृगशिरा"}
@@ -567,15 +544,9 @@ def _chandra_bala_rule(current_rashi, target_rashi):
         return "good", f"चन्द्रबल अनुकूल — जन्म राशि से {distance}वाँ स्थान"
     return "special", f"चन्द्रबल में विशेष विचार — जन्म राशि से {distance}वाँ स्थान"
 
-# ============================================================
-# YATRA / TRAVEL MUHURT RULES
-# ============================================================
-# Traditional Yatra rules are kept separate from General, Vehicle and
-# Business Muhurt.  The common Chandra-position filter remains first.
-# Direction is required for the Disha-Shool check.
 YATRA_TITHI_AVOID = {1, 4, 6, 8, 9, 12, 14, 15, 30}
 YATRA_TITHI_GOOD = {2, 3, 5, 7, 10, 11, 13}
-YATRA_VAR_AVOID = {1, 5, 6}  # Tuesday, Saturday, Sunday
+YATRA_VAR_AVOID = {1, 5, 6}
 YATRA_NAKSHATRA_GOOD = {
     "अश्विनी", "मृगशिरा", "पुनर्वसु", "पुष्य", "हस्त",
     "अनुराधा", "श्रवण", "धनिष्ठा", "रेवती"
@@ -587,7 +558,6 @@ YATRA_NAKSHATRA_AVOID = {
 }
 YATRA_YOGA_AVOID = {"व्यतीपात", "वैधृति", "गण्ड", "अतिगण्ड", "वज्र", "शूल", "परिघ"}
 YATRA_KARANA_AVOID = {"विष्टि", "भद्रा"}
-# Weekday -> direction blocked by Disha-Shool.
 YATRA_DISHA_SHOOL = {
     0: "पूर्व", 1: "उत्तर", 2: "उत्तर", 3: "उत्तर",
     4: "दक्षिण", 5: "पश्चिम", 6: "पश्चिम"
@@ -638,8 +608,6 @@ def _yatra_disha_rule(weekday, direction):
     return "good", f"आज का दिशाशूल {blocked} दिशा में है; चुनी दिशा सुरक्षित है"
 
 def _yatra_nakshatra_shool_rule(nakshatra, direction):
-    # Classical nakshatra-direction mappings vary by tradition.  Keep this
-    # check informational until a single Dharma Sindhu table is fixed.
     if not direction:
         return "not_checked", "यात्रा की दिशा उपलब्ध नहीं है"
     return "special", "नक्षत्र-शूल परंपरा अनुसार अलग तालिकाएँ हैं; दिशा जाँच के लिए विशेष विचार"
@@ -665,19 +633,13 @@ def _yatra_tara_bala_rule(current_nakshatra, janma_nakshatra):
         return "avoid", f"ताराबल में {tara}वीं तारा — यात्रा के लिए अशुभ"
     return "good", f"ताराबल अनुकूल — {tara}वीं तारा"
 
-# ============================================================
-# VEHICLE MUHURT RULES
-# ============================================================
-# Vehicle rules are kept separate from the existing General Muhurt rules.
-# The common Chandra-position filter remains first for every Muhurt type.
-
 VEHICLE_TITHI_GOOD = {2, 3, 5, 7, 10, 11, 13}
-VEHICLE_TITHI_AVOID = {4, 9, 14, 30}  # 30 = Amavasya
+VEHICLE_TITHI_AVOID = {4, 9, 14, 30}
 VEHICLE_TITHI_SPECIAL = {1, 6, 8, 12, 15, 28}
 
-VEHICLE_VAR_GOOD = {0, 2, 3, 4}       # Mon, Wed, Thu, Fri
-VEHICLE_VAR_AVOID = {1}               # Tue
-VEHICLE_VAR_SPECIAL = {5, 6}          # Sat, Sun
+VEHICLE_VAR_GOOD = {0, 2, 3, 4}
+VEHICLE_VAR_AVOID = {1}
+VEHICLE_VAR_SPECIAL = {5, 6}
 
 VEHICLE_NAKSHATRA_GOOD = {
     "पुनर्वसु", "स्वाती", "श्रवण", "धनिष्ठा", "शतभिषा"
@@ -692,8 +654,7 @@ VEHICLE_KARANA_GOOD = {
     "बव", "बालव", "कौलव", "तैतिल", "गर", "वणिज"
 }
 VEHICLE_KARANA_AVOID = {"विष्टि", "भद्रा"}
-VEHICLE_KARANA_SPECIAL = {"शकुनि", "चतुष्पद", "नाग", "किंस्तुघ्न"}
-
+VEHICLE_KARANA_SPECIAL = {"शकुनि", "चतुष्पाद", "नाग", "किंस्तुघ्न"}
 
 def _vehicle_tithi_rule(tithi_no, paksha):
     if tithi_no in VEHICLE_TITHI_AVOID:
@@ -704,7 +665,6 @@ def _vehicle_tithi_rule(tithi_no, paksha):
         return "special", "कृष्ण त्रयोदशी के लिए अन्य अंगों की विशेष जाँच"
     return "special", "तिथि के लिए अन्य वाहन-मुहूर्त अंगों के साथ विचार"
 
-
 def _vehicle_var_rule(weekday):
     if weekday in VEHICLE_VAR_AVOID:
         return "avoid", "मंगलवार वाहन मुहूर्त के लिए वर्ज्य रखा गया है"
@@ -712,18 +672,15 @@ def _vehicle_var_rule(weekday):
         return "good", "सोम/बुध/गुरु/शुक्र वाहन मुहूर्त के लिए शुभ"
     return "special", "शनिवार/रविवार को अन्य अंगों के साथ विशेष विचार"
 
-
 def _vehicle_nakshatra_rule(name):
     if name in VEHICLE_NAKSHATRA_GOOD:
         return "good", "चर नक्षत्र वाहन के लिए विशेष रूप से अनुकूल"
     return "special", "नक्षत्र मुख्य वाहन सूची में नहीं है; अन्य अंगों के साथ विचार"
 
-
 def _vehicle_yoga_rule(name):
     if name in VEHICLE_YOGA_AVOID:
         return "avoid", "यह योग वाहन मुहूर्त में त्याज्य दोष है"
     return "good", "त्याज्य योगों में नहीं है"
-
 
 def _vehicle_karana_rule(name):
     if name in VEHICLE_KARANA_AVOID:
@@ -734,21 +691,19 @@ def _vehicle_karana_rule(name):
         return "special", "स्थिर करण सामान्य वाहन मुहूर्त के लिए विशेष विचार योग्य है"
     return "special", "करण के लिए विशेष जाँच आवश्यक है"
 
-
 def _durmuhurt_periods(local_date, sunrise, sunset):
-    """Traditional daytime Durmuhurta slots based on weekday and 15-part day."""
     if not sunrise or not sunset or sunset <= sunrise:
         return []
     day_duration = (sunset - sunrise).total_seconds()
     part = day_duration / 15.0
     slots = {
-        0: [8],       # Monday
-        1: [1, 7],    # Tuesday
-        2: [5],       # Wednesday
-        3: [4, 6],    # Thursday
-        4: [2],       # Friday
-        5: [1, 2],    # Saturday
-        6: [4],       # Sunday
+        0: [8],
+        1: [1, 7],
+        2: [5],
+        3: [4, 6],
+        4: [2],
+        5: [1, 2],
+        6: [4],
     }.get(local_date.weekday(), [8])
     return [
         (sunrise + dt.timedelta(seconds=(slot - 1) * part),
@@ -756,47 +711,32 @@ def _durmuhurt_periods(local_date, sunrise, sunset):
         for slot in slots
     ]
 
-
 def _three_month_end(start_date):
     month = start_date.month - 1 + 3
     year = start_date.year + month // 12
     month = month % 12 + 1
-    # Last valid day in target month is not required: preserve the same
-    # calendar day where possible, otherwise use that month's last day.
-    import calendar
     day = min(start_date.day, calendar.monthrange(year, month)[1])
     return dt.date(year, month, day)
 
-
-# ============================================================
-# PANCHAK CALCULATION
-# ============================================================
-# Panchak begins when the sidereal Moon enters the 3rd pada of
-# Dhanishtha (296°40') and ends when it leaves Revati at 360°.
-# This covers the final two padas of Dhanishtha, all of Shatabhisha,
-# Purva Bhadrapada, Uttara Bhadrapada and Revati.
-PANCHAK_START_LON = (23 * 30.0) + (20.0 / 60.0)  # 296°40'
+PANCHAK_START_LON = (23 * 30.0) + (20.0 / 60.0)
 PANCHAK_END_LON = 360.0
 
 PANCHAK_TYPES = {
-    6: "रोग पंचक",       # रविवार
-    0: "राज पंचक",       # सोमवार
-    1: "अग्नि पंचक",     # मंगलवार
-    2: "दोषरहित पंचक",   # बुधवार
-    3: "दोषरहित पंचक",   # गुरुवार
-    4: "चोर पंचक",       # शुक्रवार
-    5: "मृत्यु पंचक",    # शनिवार
+    6: "रोग पंचक",
+    0: "राज पंचक",
+    1: "अग्नि पंचक",
+    2: "दोषरहित पंचक",
+    3: "दोषरहित पंचक",
+    4: "चोर पंचक",
+    5: "मृत्यु पंचक",
 }
 
-
 def _moon_crossing_ut(longitude, start_jd):
-    """Return the next sidereal Moon crossing of a longitude."""
     return swe.mooncross_ut(
         longitude % 360.0,
         start_jd,
         swe.FLG_SWIEPH | swe.FLG_SIDEREAL
     )
-
 
 def _jd_to_ist(jd):
     y, m, d, h = swe.revjul(jd, swe.GREG_CAL)
@@ -805,9 +745,7 @@ def _jd_to_ist(jd):
     )
     return utc_value.astimezone(IST)
 
-
 def _previous_moon_crossing(longitude, reference_jd):
-    """Find the most recent Moon crossing of longitude before reference."""
     search_jd = reference_jd - 35.0
     last = None
 
@@ -820,42 +758,27 @@ def _previous_moon_crossing(longitude, reference_jd):
 
     return last
 
-
 def _next_moon_crossing(longitude, reference_jd):
-    """Find the next Moon crossing of longitude after reference."""
     return _moon_crossing_ut(
         longitude,
         reference_jd + (1.0 / 864000.0)
     )
 
-
 def _panchak_window_for_date(date_obj):
-    """Return the Panchak window overlapping the supplied IST date.
-
-    The actual boundaries are astronomical Moon-longitude crossings.
-    Panchak starts at sidereal 296°40' and ends at sidereal 0°/360°.
-    The Panchak type is named from the weekday of its local start time.
-    """
     start_of_day = IST.localize(dt.datetime.combine(date_obj, dt.time(0, 0)))
     end_of_day = start_of_day + dt.timedelta(days=1)
     start_jd = get_julian_day(start_of_day)
     end_jd = get_julian_day(end_of_day)
 
-    # Find the latest Panchak-start crossing before the end of this day.
     p_start = _previous_moon_crossing(PANCHAK_START_LON, end_jd)
     if p_start is None:
         return None
 
-    # Find the end of that Panchak cycle.  A Moon crossing of 0°/360°
-    # follows the 296°40' crossing within the same cycle.
     p_end = _next_moon_crossing(PANCHAK_END_LON, p_start)
     if p_end is None:
         return None
 
-    # The date overlaps the Panchak window only if the two periods overlap.
     if p_end <= start_jd or p_start >= end_jd:
-        # If the latest start was still before this date but its end is also
-        # before this date, look for the next Panchak start.
         next_start = _next_moon_crossing(PANCHAK_START_LON, start_jd - (1.0 / 864000.0))
         if next_start >= end_jd:
             return None
@@ -877,9 +800,7 @@ def _panchak_window_for_date(date_obj):
         "end_display": end_dt.strftime("%d-%m-%Y %I:%M %p"),
     }
 
-
 def _panchak_status_for_date(date_obj):
-    """Return a compact Panchak factor for the Muhurt result."""
     try:
         window = _panchak_window_for_date(date_obj)
     except Exception:
@@ -908,7 +829,6 @@ def _panchak_status_for_date(date_obj):
         "end": window["end_display"],
     }
 
-
 def _tithi_number(panchang):
     name = panchang["details"].get("tithi", "")
     paksha = panchang["details"].get("paksha", "")
@@ -918,11 +838,9 @@ def _tithi_number(panchang):
         return None
     if paksha == "कृष्ण पक्ष" and name == "अमावस्या":
         return 30
-    # Duplicate names exist in TITHI_NAMES; select by paksha.
     if paksha == "शुक्ल पक्ष":
         return idx + 1
     return idx + 1 if idx >= 15 else idx + 16
-
 
 def _tithi_rule(tithi_no, paksha):
     if tithi_no in MUHURT_TITHI_AVOID:
@@ -937,7 +855,6 @@ def _tithi_rule(tithi_no, paksha):
         return "special", "इस तिथि के लिए विशेष जाँच आवश्यक है"
     return "special", "तिथि के लिए विशेष जाँच आवश्यक है"
 
-
 def _moon_position_rule(current_rashi, target_rashi):
     if target_rashi is None:
         return "not_checked", "लक्षित चंद्र राशि उपलब्ध नहीं है"
@@ -945,7 +862,6 @@ def _moon_position_rule(current_rashi, target_rashi):
     if distance in (4, 8, 12):
         return "avoid", f"चंद्रमा लक्षित राशि से {distance}वें स्थान में है"
     return "good", f"चंद्रमा लक्षित राशि से {distance}वें स्थान में है"
-
 
 def _time_from_text(text_value, base_date):
     if not text_value or text_value == "--":
@@ -956,7 +872,6 @@ def _time_from_text(text_value, base_date):
     except ValueError:
         return None
 
-
 def _period_between(start, end, total_parts=8):
     if not start or not end or end <= start:
         return []
@@ -965,13 +880,10 @@ def _period_between(start, end, total_parts=8):
              start + dt.timedelta(seconds=seconds*(i+1)))
             for i in range(total_parts)]
 
-
 def _kaal_periods(local_date, sunrise, sunset):
-    """Return Rahu, Yamaganda and Gulika daytime intervals."""
     if not sunrise or not sunset or sunset <= sunrise:
         return {}
     parts = _period_between(sunrise, sunset, 8)
-    # Weekday: Monday=0 ... Sunday=6.
     rahu_slot = {0: 2, 1: 7, 2: 5, 3: 6, 4: 4, 5: 3, 6: 1}[local_date.weekday()]
     yama_slot = {0: 5, 1: 4, 2: 3, 3: 2, 4: 1, 5: 0, 6: 6}[local_date.weekday()]
     gulika_slot = {0: 6, 1: 5, 2: 4, 3: 3, 4: 2, 5: 1, 6: 0}[local_date.weekday()]
@@ -981,7 +893,6 @@ def _kaal_periods(local_date, sunrise, sunset):
         "गुलिक काल": parts[gulika_slot],
     }
 
-
 def _choghadiya_intervals(local_date, sunrise, sunset):
     result = []
     if not sunrise or not sunset or sunset <= sunrise:
@@ -990,7 +901,6 @@ def _choghadiya_intervals(local_date, sunrise, sunset):
     day_names = CHOGHADIYA_DAY[local_date.weekday()]
     for i, (a, b) in enumerate(day_parts):
         result.append({"name": day_names[i], "start": a, "end": b, "period": "day"})
-    # Night is sunset to next day's sunrise.
     next_sunrise = sunrise + dt.timedelta(days=1)
     night_parts = _period_between(sunset, next_sunrise, 8)
     night_names = CHOGADIYA_NIGHT[local_date.weekday()]
@@ -998,30 +908,19 @@ def _choghadiya_intervals(local_date, sunrise, sunset):
         result.append({"name": night_names[i], "start": a, "end": b, "period": "night"})
     return result
 
-
 def _in_interval(value, interval):
     return bool(interval and interval[0] <= value < interval[1])
-
 
 def _format_range(start, end):
     return f"{start.strftime('%I:%M %p')} – {end.strftime('%I:%M %p')}"
 
-
 def _julian_end_datetime(end_jd):
-    """Convert a Swiss-Ephemeris Julian day to an IST datetime."""
     y2, m2, d2, h2 = swe.revjul(end_jd, swe.GREG_CAL)
     base = dt.datetime(y2, m2, d2)
     utc_value = pytz.utc.localize(base + dt.timedelta(hours=h2))
     return utc_value.astimezone(IST)
 
-
 def _abhijit_period(sunrise_dt, sunset_dt):
-    """Return the daytime Abhijit Muhurta using the existing sunrise/sunset.
-
-    The daytime is divided into 15 equal parts; the 8th part is exposed as
-    Abhijit.  This is added only to the Muhurt response and does not alter
-    the existing candidate-window rules.
-    """
     if not sunrise_dt or not sunset_dt or sunset_dt <= sunrise_dt:
         return None
     part = (sunset_dt - sunrise_dt) / 15
@@ -1029,14 +928,7 @@ def _abhijit_period(sunrise_dt, sunset_dt):
     end = sunrise_dt + part * 8
     return (start, end)
 
-
 def _muhurt_full_panchang(date_obj, p, choghadiya, kaal, durmuhurt):
-    """Build the complete day-level Panchang payload used by the Muhurt page.
-
-    All displayed clock periods are derived from the same sunrise/sunset and
-    Swiss-Ephemeris calculations already used by this backend.  This function
-    is additive: it does not change any existing Muhurt pass/fail rule.
-    """
     details = p["details"]
     timings = p["timings"]
 
@@ -1066,9 +958,6 @@ def _muhurt_full_panchang(date_obj, p, choghadiya, kaal, durmuhurt):
         _format_range(a, b) for a, b in durmuhurt
     ]
 
-    # Add end times for the same astronomical Panchang factors already used
-    # by the Muhurt engine.  Calculations are centered on the same noon
-    # sidereal positions used by panchang_for_date().
     y, m, d = map(int, date_obj.strftime("%Y-%m-%d").split("-"))
     noon_dt = IST.localize(dt.datetime(y, m, d, 12, 0))
     jd = get_julian_day(noon_dt)
@@ -1113,20 +1002,18 @@ def _muhurt_full_panchang(date_obj, p, choghadiya, kaal, durmuhurt):
         }
     }
 
-
 def _candidate_windows(local_date, sunrise, sunset, choghadiya, blocked):
-    """Create candidate windows from good Choghadiya and remove blocked periods.
-
-    Windows are clipped to the actual Choghadiya interval.  Up to three
-    windows are returned, preferring longer intervals and then earlier time.
+    """Create candidate windows.
+    Prioritizes Day Choghadiya first; if no good day slots are found,
+    it falls back to Night Choghadiya.
     """
-    candidates = []
+    day_candidates = []
+    night_candidates = []
+
     for item in choghadiya:
         if item["name"] not in CHOGADIYA_GOOD:
             continue
         start, end = item["start"], item["end"]
-        # Split around blocked daytime intervals rather than returning a
-        # window that crosses Rahu/Yamaganda/Gulika.
         cuts = [start, end]
         for bs, be in blocked:
             if be > start and bs < end:
@@ -1139,16 +1026,22 @@ def _candidate_windows(local_date, sunrise, sunset, choghadiya, blocked):
             if (b - a).total_seconds() >= 20 * 60:
                 if not any(_in_interval(a, x) or _in_interval(b - dt.timedelta(seconds=1), x)
                            for x in blocked):
-                    candidates.append({
+                    window = {
                         "start": a, "end": b,
                         "choghadiya": item["name"]
-                    })
-    candidates.sort(key=lambda x: (-((x["end"]-x["start"]).total_seconds()), x["start"]))
-    # Keep the three distinct best windows, then present chronologically.
-    chosen = candidates[:3]
+                    }
+                    if item.get("period") == "night":
+                        night_candidates.append(window)
+                    else:
+                        day_candidates.append(window)
+
+    day_candidates.sort(key=lambda x: (-((x["end"] - x["start"]).total_seconds()), x["start"]))
+    night_candidates.sort(key=lambda x: (-((x["end"] - x["start"]).total_seconds()), x["start"]))
+
+    chosen_pool = day_candidates if day_candidates else night_candidates
+    chosen = chosen_pool[:3]
     chosen.sort(key=lambda x: x["start"])
     return chosen
-
 
 def muhurt_day_record(date_obj, city, lat, lon, target_rashi_idx=None, muhurt_type="general", direction=None, janma_nakshatra=None):
     date_str = date_obj.strftime("%Y-%m-%d")
@@ -1169,9 +1062,6 @@ def muhurt_day_record(date_obj, city, lat, lon, target_rashi_idx=None, muhurt_ty
     else:
         tithi_status, tithi_reason = _tithi_rule(tithi_no, details["paksha"])
 
-    # These status hooks are deliberately separate.  As the remaining
-    # traditional Muhurt lessons are finalized, their rule functions can be
-    # tightened without changing the response contract.
     factors = {
         "chandra_rashi": {
             "name": "चंद्र राशि", "value": details["chandra_rashi"],
@@ -1216,7 +1106,7 @@ def muhurt_day_record(date_obj, city, lat, lon, target_rashi_idx=None, muhurt_ty
         factors["nakshatra_shool"] = {"name": "नक्षत्र शूल", "value": direction or "दिशा नहीं दी गई", "status": ns_status, "reason": ns_reason}
         tb_status, tb_reason = _yatra_tara_bala_rule(details["nakshatra"], janma_nakshatra)
         factors["tara_bala"] = {"name": "ताराबल", "value": janma_nakshatra or "जन्म नक्षत्र नहीं दिया", "status": tb_status, "reason": tb_reason}
-        factors["yogini_shool"] = {"name": "योगिनी शूल", "value": "विशेष गणना", "status": "special", "reason": "योगिनी चक्र परंपरा अनुसार दिशा-आधारित जाँच; अभी automatic hard-fail नहीं"}
+        factors["yogini_shool"] = {"name": "योगिनी शूल", "value": "विशेष गणना", "status": "special", "reason": "योगिनी चक्र परंपरा अनुसार दिशा-आधारित जाँच"}
 
     sunrise = _time_from_text(timings.get("sunrise"), date_obj)
     sunset = _time_from_text(timings.get("sunset"), date_obj)
@@ -1224,8 +1114,6 @@ def muhurt_day_record(date_obj, city, lat, lon, target_rashi_idx=None, muhurt_ty
     sunset_dt = IST.localize(dt.datetime.combine(date_obj, sunset)) if sunset else None
     kaal = _kaal_periods(date_obj, sunrise_dt, sunset_dt)
 
-    # Date-level status: a date is fully matched only when all currently
-    # configured date-level checks pass.  Time-level checks are applied below.
     for key, label in [("राहु काल", "rahu_kal"), ("यमगंड", "yamaganda"), ("गुलिक काल", "gulika")]:
         factors[label] = {
             "name": key,
@@ -1234,20 +1122,11 @@ def muhurt_day_record(date_obj, city, lat, lon, target_rashi_idx=None, muhurt_ty
             "reason": "यह समय मुहूर्त विंडो में शामिल नहीं किया जाएगा" if key in kaal else "समय उपलब्ध नहीं"
         }
 
-    # Panchak is calculated from the actual sidereal Moon transit.
-    # It is exposed as a factor but is not made a universal hard-fail here;
-    # individual Muhurt topics can apply their own Panchak restriction later.
     factors["panchak"] = _panchak_status_for_date(date_obj)
 
     choghadiya = _choghadiya_intervals(date_obj, sunrise_dt, sunset_dt)
-
-    # Durmuhurt is calculated for display for every Muhurt type.  The existing
-    # General/Vehicle/Business/Yatra blocking behavior below is preserved
-    # exactly; this payload simply exposes the calculated periods to the UI.
     durmuhurt = _durmuhurt_periods(date_obj, sunrise_dt, sunset_dt)
-    full_panchang = _muhurt_full_panchang(
-        date_obj, p, choghadiya, kaal, durmuhurt
-    )
+    full_panchang = _muhurt_full_panchang(date_obj, p, choghadiya, kaal, durmuhurt)
 
     factors["choghadiya"] = {
         "name": "चौघड़िया",
@@ -1267,12 +1146,9 @@ def muhurt_day_record(date_obj, city, lat, lon, target_rashi_idx=None, muhurt_ty
     else:
         blocked = list(kaal.values())
 
-    # Moon 4/8/12 is the common first filter for every Muhurt type.
-    # Other vehicle-specific factors are then applied to the candidate.
     hard_fail = any(f["status"] == "avoid" for f in factors.values())
     windows = [] if moon_status == "avoid" else _candidate_windows(date_obj, sunrise_dt, sunset_dt, choghadiya, blocked)
 
-    # If a tithi/position hard-fails, no complete Muhurt is returned for this date.
     complete = (not hard_fail and bool(windows))
 
     return {
@@ -1293,27 +1169,30 @@ def muhurt_day_record(date_obj, city, lat, lon, target_rashi_idx=None, muhurt_ty
         ]
     }
 
-
 def muhurt_search(start_date, city, lat, lon, target_rashi_idx=None, limit=5, muhurt_type="general", direction=None, janma_nakshatra=None):
     end_date = _three_month_end(start_date)
-    full = []
-    partial = []
+    all_records = []
     cursor = start_date
+    
     while cursor <= end_date:
         record = muhurt_day_record(cursor, city, lat, lon, target_rashi_idx, muhurt_type, direction, janma_nakshatra)
-        if record["complete_match"]:
-            full.append(record)
-            if len(full) >= limit:
-                break
-        else:
-            partial.append(record)
+        
+        avoid_count = sum(1 for f in record.get("factors", {}).values() if isinstance(f, dict) and f.get("status") == "avoid")
+        special_count = sum(1 for f in record.get("factors", {}).values() if isinstance(f, dict) and f.get("status") == "special")
+        
+        record["_score"] = (
+            0 if record["complete_match"] else 1,
+            avoid_count,
+            special_count,
+            cursor
+        )
+        all_records.append(record)
         cursor += dt.timedelta(days=1)
 
-    # Only if fewer than five complete results exist do we expose partial
-    # matches. Complete results always come first.
-    results = list(full)
-    if len(results) < limit:
-        results.extend(partial[:limit-len(results)])
+    all_records.sort(key=lambda x: x["_score"])
+
+    results = all_records[:limit]
+    complete_count = sum(1 for r in all_records if r["complete_match"])
 
     return {
         "success": True,
@@ -1326,12 +1205,11 @@ def muhurt_search(start_date, city, lat, lon, target_rashi_idx=None, limit=5, mu
             "yatra_direction": direction if muhurt_type == "yatra" else None,
             "janma_nakshatra": janma_nakshatra if muhurt_type == "yatra" else None,
             "max_results": limit,
-            "complete_results_found": len(full),
-            "partial_results_included": len(results) > len(full)
+            "complete_results_found": complete_count,
+            "partial_results_included": len(results) > complete_count
         },
         "results": results
     }
-
 
 # ============================================================
 # LOCATION SEARCH
@@ -1453,7 +1331,6 @@ def generate_kundali():
         asc_lon, cusp_list = calculate_houses(jd, lat, lon)
         asc_rashi = rashi_index(asc_lon)
 
-        # Whole-sign house placement for the North Indian Vedic chart.
         houses = []
         for house_num in range(1, 13):
             sign_idx = (asc_rashi + house_num - 1) % 12
@@ -1476,7 +1353,6 @@ def generate_kundali():
         nak_idx, nak_name, nak_pada, nak_lord = nakshatra_info(moon_lon)
         moon_rashi = rashi_index(moon_lon)
 
-        # Birth Panchang is calculated for the birth date and exact location.
         panchang = panchang_for_date(date_str, city, lat, lon)["data"]
 
         mars_rashi = rashi_index(planet_data["मंगल"]["longitude"])
@@ -1493,9 +1369,6 @@ def generate_kundali():
 
         dasha = calculate_vimshottari(birth_dt, moon_lon)
 
-        # Paya convention based on Janma Nakshatra/Rashi.
-        # Silver/Gem/Gold/Iron is exposed as a separate field so the UI
-        # can display it without changing the rest of the response.
         paya_map = {0: "स्वर्ण", 1: "रजत", 2: "ताम्र", 3: "लोह"}
         paya = paya_map.get(moon_rashi % 4, "रजत")
 
@@ -1554,18 +1427,8 @@ def dasha_api():
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
-
 @app.get("/api/muhurt-search")
 def muhurt_search_api():
-    """Find General Muhurt dates from today through the next 3 months.
-
-    Query:
-      date=YYYY-MM-DD (optional; defaults to today in IST)
-      city, lat, lon (optional; defaults to Ujjain)
-      rashi / chandra_rashi (optional; user's reference Moon Rashi)
-      muhurt_type / type (optional; general, vehicle, or business; default general)
-      limit (optional; maximum 5)
-    """
     try:
         today = dt.datetime.now(IST).date()
         date_str = request.args.get("date")
