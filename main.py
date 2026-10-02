@@ -758,9 +758,14 @@ def _durmuhurt_periods(local_date, sunrise, sunset):
 
 
 def _three_month_end(start_date):
-    # Muhurt search window is exactly D through D + 90 days, inclusive.
-    # Keep the existing function name for compatibility with the current API.
-    return start_date + dt.timedelta(days=90)
+    month = start_date.month - 1 + 3
+    year = start_date.year + month // 12
+    month = month % 12 + 1
+    # Last valid day in target month is not required: preserve the same
+    # calendar day where possible, otherwise use that month's last day.
+    import calendar
+    day = min(start_date.day, calendar.monthrange(year, month)[1])
+    return dt.date(year, month, day)
 
 
 # ============================================================
@@ -1270,19 +1275,11 @@ def muhurt_day_record(date_obj, city, lat, lon, target_rashi_idx=None, muhurt_ty
     # If a tithi/position hard-fails, no complete Muhurt is returned for this date.
     complete = (not hard_fail and bool(windows))
 
-    # The existing rules above determine the actual status.  These ranking
-    # fields are metadata only and are used by the 90-day selector.
-    # In particular, an avoid factor (such as Rikta Tithi) keeps its existing
-    # red/avoid status and prevents this date from being a perfect match.
-    preliminary_score = _muhurt_match_score({"factors": factors, "time_frames": windows})
-
     return {
         "date": date_str,
         "date_display": date_obj.strftime("%d-%m-%Y"),
         "factors": factors,
         "complete_match": complete,
-        "match_score": preliminary_score["score"],
-        "match_quality": preliminary_score,
         "time_frames": [
             {
                 "time": _format_range(x["start"], x["end"]),
@@ -1297,114 +1294,26 @@ def muhurt_day_record(date_obj, city, lat, lon, target_rashi_idx=None, muhurt_ty
     }
 
 
-def _muhurt_match_score(record):
-    """Return a deterministic quality score without changing Muhurt rules.
-
-    Existing factor functions decide whether a factor is good, special,
-    avoid, or not_checked.  This function only ranks already-calculated
-    records; it does not change any factor status or rule.
-
-    Good factors contribute one point.  Avoid factors are counted separately
-    as a tie-breaker so a record containing an avoid condition cannot outrank
-    another record merely because both have the same number of good factors.
-    Special/not_checked factors do not receive a positive point.
-    """
-    factors = record.get("factors") or {}
-    good_count = sum(
-        1 for factor in factors.values()
-        if factor.get("status") == "good"
-    )
-    avoid_count = sum(
-        1 for factor in factors.values()
-        if factor.get("status") == "avoid"
-    )
-    special_count = sum(
-        1 for factor in factors.values()
-        if factor.get("status") == "special"
-    )
-
-    # Candidate windows are already produced by the existing rule engine.
-    # More valid windows are a secondary quality signal, after factor score.
-    window_count = len(record.get("time_frames") or [])
-
-    return {
-        "score": good_count,
-        "good_count": good_count,
-        "avoid_count": avoid_count,
-        "special_count": special_count,
-        "window_count": window_count,
-    }
-
-
-def _muhurt_sort_key(record):
-    """Sort strongest matches first, then earlier dates."""
-    score = record.get("match_score", {})
-    return (
-        -int(score.get("score", 0)),
-        int(score.get("avoid_count", 0)),
-        int(score.get("special_count", 0)),
-        -int(score.get("window_count", 0)),
-        record.get("date", "9999-12-31"),
-    )
-
-
 def muhurt_search(start_date, city, lat, lon, target_rashi_idx=None, limit=5, muhurt_type="general", direction=None, janma_nakshatra=None):
-    # The requested search is D through D + 90 days, inclusive.  That is
-    # 91 calendar dates and must ALWAYS be scanned completely before the
-    # final five results are selected.
     end_date = _three_month_end(start_date)
-
-    perfect_matches = []
-    partial_matches = []
-
+    full = []
+    partial = []
     cursor = start_date
     while cursor <= end_date:
-        record = muhurt_day_record(
-            cursor,
-            city,
-            lat,
-            lon,
-            target_rashi_idx,
-            muhurt_type,
-            direction,
-            janma_nakshatra
-        )
-
-        # Calculate ranking information AFTER the existing factor rules have
-        # produced the record.  No existing factor calculation is changed.
-        match_score = _muhurt_match_score(record)
-        record["match_score"] = match_score["score"]
-        record["match_quality"] = match_score
-
-        if record.get("complete_match") is True:
-            perfect_matches.append(record)
+        record = muhurt_day_record(cursor, city, lat, lon, target_rashi_idx, muhurt_type, direction, janma_nakshatra)
+        if record["complete_match"]:
+            full.append(record)
+            if len(full) >= limit:
+                break
         else:
-            partial_matches.append(record)
-
-        # IMPORTANT: do not break here after finding five perfect matches.
-        # The complete 90-day window must always be searched.
+            partial.append(record)
         cursor += dt.timedelta(days=1)
 
-    # Rank ALL perfect matches found across the complete search window.
-    perfect_matches.sort(key=_muhurt_sort_key)
-
-    # Rank ALL partial matches found across the complete search window.
-    # This is the critical fix: partial_matches[:remaining] must never be
-    # taken before sorting, because that would prefer earlier dates instead
-    # of better matches.
-    partial_matches.sort(key=_muhurt_sort_key)
-
-    if len(perfect_matches) >= limit:
-        # When enough perfect matches exist, partial matches are never used.
-        results = perfect_matches[:limit]
-    else:
-        # Perfect matches always come first.  Only the number still needed is
-        # filled from the globally ranked partial pool.
-        remaining = limit - len(perfect_matches)
-        results = perfect_matches + partial_matches[:remaining]
-
-    # Defensive cap: the API never returns more than the requested limit.
-    results = results[:limit]
+    # Only if fewer than five complete results exist do we expose partial
+    # matches. Complete results always come first.
+    results = list(full)
+    if len(results) < limit:
+        results.extend(partial[:limit-len(results)])
 
     return {
         "success": True,
@@ -1412,16 +1321,13 @@ def muhurt_search(start_date, city, lat, lon, target_rashi_idx=None, limit=5, mu
             "muhurt_type": muhurt_type,
             "start_date": start_date.strftime("%Y-%m-%d"),
             "end_date": end_date.strftime("%Y-%m-%d"),
-            "search_days": (end_date - start_date).days + 1,
             "location": {"city": city, "latitude": lat, "longitude": lon},
             "target_chandra_rashi": RASHI_NAMES[target_rashi_idx] if target_rashi_idx is not None else None,
             "yatra_direction": direction if muhurt_type == "yatra" else None,
             "janma_nakshatra": janma_nakshatra if muhurt_type == "yatra" else None,
             "max_results": limit,
-            "complete_results_found": len(perfect_matches),
-            "partial_results_scanned": len(partial_matches),
-            "partial_results_included": len(results) > len(perfect_matches),
-            "selection_method": "all_90_days_scanned_then_ranked",
+            "complete_results_found": len(full),
+            "partial_results_included": len(results) > len(full)
         },
         "results": results
     }
