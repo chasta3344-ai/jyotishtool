@@ -1637,10 +1637,118 @@ def _vivah_time_check(local_dt, lat, lon):
         "valid": not any(status == "avoid" for status, _ in checks)
     }
 
-def _vivah_day_record(date_obj, city, lat, lon, bride=None, groom=None):
+GANDMOOL_NAKSHATRAS = {"अश्विनी", "आश्लेषा", "मघा", "ज्येष्ठा", "मूल", "रेवती"}
+
+
+def _nakshatra_window_for_date(date_obj):
+    """Return the active Moon nakshatra window intersecting the local date."""
+    start_of_day = IST.localize(dt.datetime.combine(date_obj, dt.time(0, 0)))
+    end_of_day = start_of_day + dt.timedelta(days=1)
+    ref_jd = get_julian_day(start_of_day)
+    moon_lon, _ = sidereal_position(ref_jd, swe.MOON)
+    nak_idx, _, _, _ = nakshatra_info(moon_lon)
+    span = 360.0 / 27.0
+    start_lon = nak_idx * span
+    end_lon = (nak_idx + 1) * span
+    start_jd = _previous_moon_crossing(start_lon, ref_jd + (1.0 / 864000.0))
+    end_jd = _next_moon_crossing(end_lon, ref_jd)
+    if start_jd is None or end_jd is None:
+        return None
+    start_dt = _jd_to_ist(start_jd)
+    end_dt = _jd_to_ist(end_jd)
+    if end_dt <= start_of_day or start_dt >= end_of_day:
+        return None
+    return start_dt, end_dt, NAKSHATRA_NAMES[nak_idx]
+
+
+def _gandmool_for_date(date_obj):
+    window = _nakshatra_window_for_date(date_obj)
+    if not window:
+        return {"active": False, "name": "गंडमूल", "nakshatra": None, "time": "--"}
+    start_dt, end_dt, nak_name = window
+    active = nak_name in GANDMOOL_NAKSHATRAS
+    return {
+        "active": active,
+        "name": "गंडमूल",
+        "nakshatra": nak_name if active else None,
+        "time": _format_range(start_dt, end_dt) if active else "--"
+    }
+
+
+def _planet_snapshot(local_dt, lat, lon):
+    jd = get_julian_day(local_dt)
+    swe.set_sid_mode(swe.SIDM_LAHIRI)
+    sun_lon, _ = sidereal_position(jd, swe.SUN)
+    wanted = {
+        "सूर्य": swe.SUN,
+        "चंद्र": swe.MOON,
+        "गुरु": swe.JUPITER,
+        "शुक्र": swe.VENUS,
+        "मंगल": swe.MARS,
+    }
+    result = {}
+    for name, pid in wanted.items():
+        lon, speed = sidereal_position(jd, pid)
+        r_idx = rashi_index(lon)
+        diff = abs(lon - sun_lon)
+        if diff > 180:
+            diff = 360 - diff
+        asta = name in {"गुरु", "शुक्र", "मंगल"} and diff <= 8.5
+        result[name] = {
+            "rashi": RASHI_NAMES[r_idx],
+            "degree": degree_text(lon),
+            "longitude": round(lon, 6),
+            "vakri": bool(speed < 0),
+            "asta": bool(asta),
+            "status": "अस्त" if asta else ("वक्री" if speed < 0 else "मार्गी")
+        }
+    return result
+
+
+def _all_lagna_periods(date_obj, lat, lon, sunrise_dt, next_sunrise_dt):
+    """Group every ascendant rashi from sunrise through the next sunrise."""
+    if not sunrise_dt or not next_sunrise_dt or next_sunrise_dt <= sunrise_dt:
+        return []
+    step = dt.timedelta(minutes=5)
+    cursor = sunrise_dt
+    rows = []
+    current_sign = None
+    current_degree = None
+    current_start = None
+    while cursor < next_sunrise_dt:
+        jd = get_julian_day(cursor)
+        asc_lon, _ = calculate_houses(jd, lat, lon)
+        sign = RASHI_NAMES[rashi_index(asc_lon)]
+        degree = degree_text(asc_lon)
+        if sign != current_sign:
+            if current_sign is not None:
+                rows.append({
+                    "lagna": current_sign,
+                    "degree_start": current_degree,
+                    "start": current_start.strftime("%I:%M %p"),
+                    "end": cursor.strftime("%I:%M %p"),
+                    "time": _format_range(current_start, cursor)
+                })
+            current_sign = sign
+            current_degree = degree
+            current_start = cursor
+        cursor += step
+    if current_sign is not None and current_start:
+        rows.append({
+            "lagna": current_sign,
+            "degree_start": current_degree,
+            "start": current_start.strftime("%I:%M %p"),
+            "end": next_sunrise_dt.strftime("%I:%M %p"),
+            "time": _format_range(current_start, next_sunrise_dt)
+        })
+    return rows
+
+
+def _vivah_day_record(date_obj, city, lat, lon, bride=None, groom=None, enrich=False):
     date_str = date_obj.strftime("%Y-%m-%d")
     p = panchang_for_date(date_str, city, lat, lon)["data"]
     details = p["details"]
+    timings = p["timings"]
     tithi_no = _tithi_number(p)
     nakshatra = details.get("nakshatra", "")
     weekday = details.get("var", "")
@@ -1670,27 +1778,36 @@ def _vivah_day_record(date_obj, city, lat, lon, bride=None, groom=None):
                           "reason":"विष्टि/भद्रा विवाह में वर्ज्य" if karana in VIVAH_KARANA_AVOID else "करण तत्काल वर्जित नहीं"}
 
     moon_rashi_idx = RASHI_NAMES.index(details["chandra_rashi"])
-    current_nak = nakshatra
     if bride:
         s, r = _vivah_chandra_bala(moon_rashi_idx, bride["moon_rashi_index"])
         factors["bride_chandra_bala"] = {"status":s, "value":bride["moon_rashi"], "reason":r}
-        s, r = _vivah_tara_bala(current_nak, bride["nakshatra"])
+        s, r = _vivah_tara_bala(nakshatra, bride["nakshatra"])
         factors["bride_tara_bala"] = {"status":s, "value":bride["nakshatra"], "reason":r}
     if groom:
         s, r = _vivah_chandra_bala(moon_rashi_idx, groom["moon_rashi_index"])
         factors["groom_chandra_bala"] = {"status":s, "value":groom["moon_rashi"], "reason":r}
-        s, r = _vivah_tara_bala(current_nak, groom["nakshatra"])
+        s, r = _vivah_tara_bala(nakshatra, groom["nakshatra"])
         factors["groom_tara_bala"] = {"status":s, "value":groom["nakshatra"], "reason":r}
 
-    sunrise = _time_from_text(p["timings"].get("sunrise"), date_obj)
-    sunset = _time_from_text(p["timings"].get("sunset"), date_obj)
+    sunrise = _time_from_text(timings.get("sunrise"), date_obj)
+    sunset = _time_from_text(timings.get("sunset"), date_obj)
     if not sunrise or not sunset:
-        return {"date":date_str, "date_display":date_obj.strftime("%d-%m-%Y"), "complete_match":False,
-                "factors":factors, "time_frames":[], "panchang":p, "reasons":["सूर्योदय/सूर्यास्त उपलब्ध नहीं"]}
+        return {"date":date_str,"date_display":date_obj.strftime("%d-%m-%Y"),"complete_match":False,
+                "factors":factors,"time_frames":[],"panchang":p,"reasons":["सूर्योदय/सूर्यास्त उपलब्ध नहीं"]}
     sunrise_dt = IST.localize(dt.datetime.combine(date_obj, sunrise))
     sunset_dt = IST.localize(dt.datetime.combine(date_obj, sunset))
+    next_date = date_obj + dt.timedelta(days=1)
+    next_sunrise = find_sun_event(next_date.year, next_date.month, next_date.day, lat, lon, True)
+    if not next_sunrise:
+        next_sunrise = sunrise_dt + dt.timedelta(days=1)
+
     kaal = _kaal_periods(date_obj, sunrise_dt, sunset_dt)
-    blocked = list(kaal.values()) + _durmuhurt_periods(date_obj, sunrise_dt, sunset_dt)
+    durmuhurt = _durmuhurt_periods(date_obj, sunrise_dt, sunset_dt)
+    blocked = list(kaal.values()) + durmuhurt
+    choghadiya_all = _choghadiya_intervals(date_obj, sunrise_dt, sunset_dt)
+    good_choghadiya = [x for x in choghadiya_all if x["name"] in CHOGADIYA_GOOD]
+    abhijit = _abhijit_period(sunrise_dt, sunset_dt)
+    gandmool = _gandmool_for_date(date_obj)
 
     windows=[]
     cursor = sunrise_dt
@@ -1699,44 +1816,83 @@ def _vivah_day_record(date_obj, city, lat, lon, bride=None, groom=None):
         if nxt - cursor < dt.timedelta(minutes=15):
             break
         blocked_here = any(cursor < b and nxt > a for a,b in blocked)
-        if not blocked_here and cursor.hour < 22:
+        if not blocked_here:
             tc = _vivah_time_check(cursor, lat, lon)
             if tc["valid"]:
-                windows.append({"start":cursor, "end":nxt, "lagna":tc["ascendant"], "lagna_degree":tc["ascendant_degree"],
-                                "time_checks":tc})
+                windows.append({"start":cursor,"end":nxt,"lagna":tc["ascendant"],"lagna_degree":tc["ascendant_degree"],"time_checks":tc})
         cursor = nxt
 
     hard_avoid = any(x.get("status") == "avoid" for x in factors.values())
     complete = bool(windows) and not hard_avoid
-    return {
+    score = sum(2 if x.get("status") == "good" else 1 if x.get("status") == "special" else 0 for x in factors.values())
+    score += min(len(windows), 8) * 0.1
+
+    result = {
         "date":date_str,
         "date_display":date_obj.strftime("%d-%m-%Y"),
         "complete_match":complete,
+        "score":round(score,2),
         "factors":factors,
-        "time_frames":[{"time":_format_range(x["start"],x["end"]), "lagna":x["lagna"], "lagna_degree":x["lagna_degree"], "time_checks":x["time_checks"]} for x in windows[:8]],
+        "time_frames":[{"time":_format_range(x["start"],x["end"]),"lagna":x["lagna"],"lagna_degree":x["lagna_degree"],"time_checks":x["time_checks"]} for x in windows[:8]],
         "panchang":p,
+        "timings":timings,
+        "kaal": {k:_format_range(v[0],v[1]) for k,v in kaal.items()},
+        "durmuhurt":[_format_range(a,b) for a,b in durmuhurt],
+        "abhijit":_format_range(*abhijit) if abhijit else "--",
+        "gandmool":gandmool,
+        "choghadiya": {
+            "day":[{"name":x["name"],"time":_format_range(x["start"],x["end"])} for x in good_choghadiya if x["period"]=="day"],
+            "night":[{"name":x["name"],"time":_format_range(x["start"],x["end"])} for x in good_choghadiya if x["period"]=="night"]
+        },
+        "planets_status": _planet_snapshot(IST.localize(dt.datetime.combine(date_obj, dt.time(12,0))), lat, lon),
         "reasons":[x["reason"] for x in factors.values() if x.get("status") in {"avoid","special"}]
     }
+    if enrich:
+        result["all_lagna"] = _all_lagna_periods(date_obj, lat, lon, sunrise_dt, next_sunrise)
+    return result
+
+
+def _one_year_end(start_date):
+    try:
+        return start_date.replace(year=start_date.year + 1) - dt.timedelta(days=1)
+    except ValueError:
+        return start_date.replace(year=start_date.year + 1, month=2, day=28)
+
 
 def vivah_search(start_date, city, lat, lon, limit=5, bride=None, groom=None):
-    end_date = _three_month_end(start_date)
-    results=[]
-    partial=[]
-    cursor=start_date
+    end_date = _one_year_end(start_date)
+    complete = []
+    partial = []
+    cursor = start_date
     while cursor <= end_date:
-        rec=_vivah_day_record(cursor, city, lat, lon, bride, groom)
-        if rec["complete_match"]:
-            results.append(rec)
-            if len(results)>=limit:
-                break
-        else:
-            partial.append(rec)
+        rec = _vivah_day_record(cursor, city, lat, lon, bride, groom, enrich=False)
+        (complete if rec["complete_match"] else partial).append(rec)
         cursor += dt.timedelta(days=1)
-    if len(results)<limit:
-        results.extend(partial[:limit-len(results)])
-    return {"success":True,"search":{"muhurt_type":"vivah","start_date":start_date.strftime("%Y-%m-%d"),
-            "end_date":end_date.strftime("%Y-%m-%d"),"location":{"city":city,"latitude":lat,"longitude":lon},"max_results":limit,
-            "complete_results_found":sum(1 for r in results if r["complete_match"])},"results":results}
+
+    complete.sort(key=lambda x: (-x.get("score", 0), x["date"]))
+    partial.sort(key=lambda x: (-x.get("score", 0), x["date"]))
+    selected = complete[:limit]
+    if len(selected) < limit:
+        selected.extend(partial[:limit-len(selected)])
+
+    # Enrich only the final five dates with the expensive sunrise-to-next-sunrise Lagna scan.
+    enriched = []
+    for rec in selected:
+        enriched.append(_vivah_day_record(dt.datetime.strptime(rec["date"], "%Y-%m-%d").date(), city, lat, lon, bride, groom, enrich=True))
+
+    return {
+        "success":True,
+        "search":{
+            "muhurt_type":"vivah",
+            "start_date":start_date.strftime("%Y-%m-%d"),
+            "end_date":end_date.strftime("%Y-%m-%d"),
+            "location":{"city":city,"latitude":lat,"longitude":lon},
+            "max_results":limit,
+            "complete_results_found":len(complete),
+            "partial_results_included":max(0, len(enriched)-min(limit,len(complete)))
+        },
+        "results":enriched
+    }
 
 # ============================================================
 # ROUTES
@@ -2015,6 +2171,19 @@ def vivah_muhurt_api():
 
             res = vivah_search(start_date, city, lat, lon, limit, bride, groom)
             res["sub_option"] = "muhurt"
+            if bride and groom:
+                matching_result = calculate_ashtakoot(groom["moon_longitude"], bride["moon_longitude"])
+                res["matching"] = matching_result
+                res["bride"] = {
+                    "rashi": bride["moon_rashi"],
+                    "nakshatra": bride["nakshatra"],
+                    "nakshatra_pada": bride["nakshatra_pada"]
+                }
+                res["groom"] = {
+                    "rashi": groom["moon_rashi"],
+                    "nakshatra": groom["nakshatra"],
+                    "nakshatra_pada": groom["nakshatra_pada"]
+                }
             return jsonify(res)
 
     except ValueError as e:
